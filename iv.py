@@ -14,6 +14,169 @@ class iv:
     x_stop_at_orig = True
     y_stop_at_orig = True
     
+    def __init__(self, image, transposeFrames=False, transposeCollage=False):
+        # make input 4D (width x height x channels x images)
+        while len(image.shape) < 4:
+            image = np.reshape(image, image.shape + (1, ))
+        self.w, self.h, self.nc = image.shape[0 : 3]
+        self.border_width = 0
+        self.image = image
+        self.scale = 1.
+        self.gamma = 1.
+        self.offset = 0.
+        self.prctile = 0.1
+        self.autoscale_prctiles = False
+        self.onchange_autoscale = True
+        self.per_image_scaling = True
+        self.is_collage = False
+        self.transpose_collage = transposeCollage
+        self.transpose_frames = transposeFrames
+        self.imind = 0 # currently selected image
+        self.nims = image.shape[3]
+        self.fig, self.ax = plt.subplots()
+        self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
+        plt.tight_layout()
+        self.updateImage()
+        if self.onchange_autoscale:
+            self.autoscale()
+        self.lims_orig = self.ih.axes.axis()
+        self.mouse_down = 0
+        self.x_start = 0
+        self.y_start = 0
+        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.onclick)
+        self.cid = self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
+        self.cid = self.fig.canvas.mpl_connect('motion_notify_event', self.onmotion)
+        self.cid = self.fig.canvas.mpl_connect('key_press_event', self.onkeypress)
+        self.cid = self.fig.canvas.mpl_connect('key_release_event', self.onkeyrelease)
+        self.cid = self.fig.canvas.mpl_connect('scroll_event', self.onscroll)
+        plt.show(block=True)
+        #plt.pause(10)
+        
+    def print_usage(self):
+        print(' ')
+        print('hotkeys: ')
+        print('a: trigger autoscale')
+        print('A: toggle autoscale of [min, max] or ')
+        print('   [prctile_low, prctile_high] -> [0, 1], ')
+        print('   prctiles can be changed via ctrl+shift+wheel')
+        print('c: toggle autoscale on image change')
+        print('G: reset gamma to 1')
+        print('L: create collage by arranging all images in a ')
+        print('   rectangular manner')
+        print('O: reset offset to 0')
+        print('p: toggle per image auto scale limit computations ')
+        print('   (vs. globally over all images)')
+        print('S: reset scale to 1')
+        print('Z: reset zoom to 100%')
+        print('left / right:         switch to next / previous image')
+        print('page down / up:       go through images in ~10% steps')
+        print('')
+        print('wheel:                zoom in / out (inside image axes)')
+        print('wheel:                switch to next / previous image')
+        print('                      (outside image axes)')
+        print('ctrl + wheel:         scale up / down')
+        print('shift + wheel:        gamma up / down')
+        print('ctrl + shift + wheel: increase / decrease autoscale')
+        print('                      percentiles')
+        print('left mouse dragged:   pan image')
+        print('')
+    
+    def autoscale(self):
+        # autoscale between user-selected percentiles
+        if self.autoscale_prctiles:
+            if self.per_image_scaling:
+                min, max = np.percentile(self.image[:, :, :, self.imind], (self.prctile, 100 - self.prctile))
+            else:
+                min, max = np.percentile(self.image[:], (self.prctile, 100 - self.prctile))
+        else:
+            if self.per_image_scaling:
+                min = np.min(self.image[:, :, :, self.imind])
+                max = np.max(self.image[:, :, :, self.imind])
+            else:
+                min = np.min(self.image[:])
+                max = np.max(self.image[:])
+        self.offset = min
+        self.scale = 1. / (max - min)
+        print('scale: %3.5f, offset: %3.5f' % (self.scale, self.offset))
+        self.updateImage()
+        
+    def collage(self):
+        nc = int(np.ceil(np.sqrt(self.nims)))
+        nr = int(np.ceil(self.nims / nc))
+        # pad array so it matches the product nc * nr
+        padding = nc * nr - self.nims
+        coll = np.append(self.image, np.zeros((self.w, self.h, self.nc, padding)), axis=3)
+        coll = np.reshape(coll, (self.w, self.h, self.nc, nc, nr))
+        if self.border_width:
+            # pad each patch by border if requested
+            coll = np.append(coll, np.zeros((self.border_width, ) + coll.shape[1 : 5]), axis=0)
+            coll = np.append(coll, np.zeros((coll.shape[0], self.border_width) + coll.shape[2 : 5]), axis=1)
+        if self.transpose_collage:
+            if self.transpose_frames:
+                coll = np.transpose(coll, (4, 1, 3, 0, 2))
+            else:
+                coll = np.transpose(coll, (4, 0, 3, 1, 2))
+        else:
+            if self.transpose_frames:
+                coll = np.transpose(coll, (3, 1, 4, 0, 2))
+            else:
+                coll = np.transpose(coll, (3, 0, 4, 1, 2))
+        coll = np.reshape(coll, ((self.w + self.border_width) * nc, (self.h + self.border_width) * nr, self.nc))
+        #self.ih.set_data(self.tonemap(coll))
+        self.ih = self.ax.imshow(self.tonemap(coll))
+        # todo: update original axis limits?
+        #self.ih.axes.relim()
+        #self.ih.axes.autoscale_view(True,True,True)        
+    
+    def switch_to_single_image(self):
+        if self.is_collage:
+            self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
+        self.is_collage = False
+        
+    def reset_zoom(self):
+        self.ih.axes.axis(self.lims_orig)
+        
+    def zoom(self, pos, factor):
+        lims = self.ih.axes.axis();
+        xlim = lims[0 : 2]
+        ylim = lims[2 : ]
+        
+        # compute interval lengths left, right, below and above cursor
+        left = pos[0] - xlim[0];
+        right = xlim[1] - pos[0];
+        below = pos[1] - ylim[0];
+        above = ylim[1] - pos[1];
+        
+        # zoom in or out
+        if self.x_zoom:
+            xlim = [pos[0] - factor * left, pos[0] + factor * right];
+        if self.y_zoom:
+            ylim = [pos[1] - factor * below, pos[1] + factor * above];
+        
+        # no zooming out beyond original zoom level
+        if self.x_stop_at_orig:
+            #xlim = [np.minimum(self.lims_orig[0], xlim[0]), np.maximum(self.lims_orig[1], xlim[1])];
+            xlim = [np.maximum(self.lims_orig[0], xlim[0]), np.minimum(self.lims_orig[1], xlim[1])];
+        
+        if self.y_stop_at_orig:
+            #ylim = [np.maximum(self.lims_orig[2], ylim[0]), np.minimum(self.lims_orig[3], ylim[1])];
+            ylim = [np.minimum(self.lims_orig[2], ylim[0]), np.maximum(self.lims_orig[3], ylim[1])];
+        
+        # update axes
+        if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
+            lims = (xlim[0], xlim[1], ylim[0], ylim[1])
+            self.ih.axes.axis(lims)
+        return
+        
+    def tonemap(self, im):
+        return np.power(np.maximum(0., np.minimum(1., (im - self.offset) * self.scale)), 1. / self.gamma)
+        
+    def updateImage(self):
+        if self.is_collage:
+            self.collage()
+        else:
+            self.ih.set_data(self.tonemap(self.image[:, :, :, self.imind]))
+    
     def onclick(self, event):
         if event.dblclick:
             self.reset_zoom()
@@ -146,167 +309,4 @@ class iv:
                 self.autoscale()
                 return
         self.updateImage()
-        
     
-    def autoscale(self):
-        # autoscale between user-selected percentiles
-        if self.autoscale_prctiles:
-            if self.per_image_scaling:
-                min, max = np.percentile(self.image[:, :, :, self.imind], (self.prctile, 100 - self.prctile))
-            else:
-                min, max = np.percentile(self.image[:], (self.prctile, 100 - self.prctile))
-        else:
-            if self.per_image_scaling:
-                min = np.min(self.image[:, :, :, self.imind])
-                max = np.max(self.image[:, :, :, self.imind])
-            else:
-                min = np.min(self.image[:])
-                max = np.max(self.image[:])
-        self.offset = min
-        self.scale = 1. / (max - min)
-        print('scale: %3.5f, offset: %3.5f' % (self.scale, self.offset))
-        self.updateImage()
-        
-    def collage(self):
-        nc = int(np.ceil(np.sqrt(self.nims)))
-        nr = int(np.ceil(self.nims / nc))
-        # pad array so it matches the product nc * nr
-        padding = nc * nr - self.nims
-        coll = np.append(self.image, np.zeros((self.w, self.h, self.nc, padding)), axis=3)
-        coll = np.reshape(coll, (self.w, self.h, self.nc, nc, nr))
-        if self.border_width:
-            # pad each patch by border if requested
-            coll = np.append(coll, np.zeros((self.border_width, ) + coll.shape[1 : 5]), axis=0)
-            coll = np.append(coll, np.zeros((coll.shape[0], self.border_width) + coll.shape[2 : 5]), axis=1)
-        if self.transpose_collage:
-            if self.transpose_frames:
-                coll = np.transpose(coll, (4, 1, 3, 0, 2))
-            else:
-                coll = np.transpose(coll, (4, 0, 3, 1, 2))
-        else:
-            if self.transpose_frames:
-                coll = np.transpose(coll, (3, 1, 4, 0, 2))
-            else:
-                coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((self.w + self.border_width) * nc, (self.h + self.border_width) * nr, self.nc))
-        #self.ih.set_data(self.tonemap(coll))
-        self.ih = self.ax.imshow(self.tonemap(coll))
-        # todo: update original axis limits?
-        #self.ih.axes.relim()
-        #self.ih.axes.autoscale_view(True,True,True)        
-    
-    def switch_to_single_image(self):
-        if self.is_collage:
-            self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
-        self.is_collage = False
-        
-    def reset_zoom(self):
-        self.ih.axes.axis(self.lims_orig)
-        
-    def zoom(self, pos, factor):
-        lims = self.ih.axes.axis();
-        xlim = lims[0 : 2]
-        ylim = lims[2 : ]
-        
-        # compute interval lengths left, right, below and above cursor
-        left = pos[0] - xlim[0];
-        right = xlim[1] - pos[0];
-        below = pos[1] - ylim[0];
-        above = ylim[1] - pos[1];
-        
-        # zoom in or out
-        if self.x_zoom:
-            xlim = [pos[0] - factor * left, pos[0] + factor * right];
-        if self.y_zoom:
-            ylim = [pos[1] - factor * below, pos[1] + factor * above];
-        
-        # no zooming out beyond original zoom level
-        if self.x_stop_at_orig:
-            #xlim = [np.minimum(self.lims_orig[0], xlim[0]), np.maximum(self.lims_orig[1], xlim[1])];
-            xlim = [np.maximum(self.lims_orig[0], xlim[0]), np.minimum(self.lims_orig[1], xlim[1])];
-        
-        if self.y_stop_at_orig:
-            #ylim = [np.maximum(self.lims_orig[2], ylim[0]), np.minimum(self.lims_orig[3], ylim[1])];
-            ylim = [np.minimum(self.lims_orig[2], ylim[0]), np.maximum(self.lims_orig[3], ylim[1])];
-        
-        # update axes
-        if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
-            lims = (xlim[0], xlim[1], ylim[0], ylim[1])
-            self.ih.axes.axis(lims)
-        return
-        
-    def tonemap(self, im):
-        return np.power(np.maximum(0., np.minimum(1., (im - self.offset) * self.scale)), 1. / self.gamma)
-        
-    def updateImage(self):
-        if self.is_collage:
-            self.collage()
-        else:
-            self.ih.set_data(self.tonemap(self.image[:, :, :, self.imind]))
-        
-    def __init__(self, image, transposeFrames=False, transposeCollage=False):
-        # make input 4D (width x height x channels x images)
-        while len(image.shape) < 4:
-            image = np.reshape(image, image.shape + (1, ))
-        self.w, self.h, self.nc = image.shape[0 : 3]
-        self.border_width = 0
-        self.image = image
-        self.scale = 1.
-        self.gamma = 1.
-        self.offset = 0.
-        self.prctile = 0.1
-        self.autoscale_prctiles = False
-        self.onchange_autoscale = True
-        self.per_image_scaling = True
-        self.is_collage = False
-        self.transpose_collage = transposeCollage
-        self.transpose_frames = transposeFrames
-        self.imind = 0 # currently selected image
-        self.nims = image.shape[3]
-        self.fig, self.ax = plt.subplots()
-        self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
-        plt.tight_layout()
-        self.updateImage()
-        if self.onchange_autoscale:
-            self.autoscale()
-        self.lims_orig = self.ih.axes.axis()
-        self.mouse_down = 0
-        self.x_start = 0
-        self.y_start = 0
-        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.onclick)
-        self.cid = self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
-        self.cid = self.fig.canvas.mpl_connect('motion_notify_event', self.onmotion)
-        self.cid = self.fig.canvas.mpl_connect('key_press_event', self.onkeypress)
-        self.cid = self.fig.canvas.mpl_connect('key_release_event', self.onkeyrelease)
-        self.cid = self.fig.canvas.mpl_connect('scroll_event', self.onscroll)
-        plt.show(block=True)
-        #plt.pause(10)
-        
-    def print_usage(self):
-        print(' ')
-        print('hotkeys: ')
-        print('a: trigger autoscale')
-        print('A: toggle autoscale of [min, max] or ')
-        print('   [prctile_low, prctile_high] -> [0, 1], ')
-        print('   prctiles can be changed via ctrl+shift+wheel')
-        print('c: toggle autoscale on image change')
-        print('G: reset gamma to 1')
-        print('L: create collage by arranging all images in a ')
-        print('   rectangular manner')
-        print('O: reset offset to 0')
-        print('p: toggle per image auto scale limit computations ')
-        print('   (vs. globally over all images)')
-        print('S: reset scale to 1')
-        print('Z: reset zoom to 100%')
-        print('left / right:         switch to next / previous image')
-        print('page down / up:       go through images in ~10% steps')
-        print('')
-        print('wheel:                zoom in / out (inside image axes)')
-        print('wheel:                switch to next / previous image')
-        print('                      (outside image axes)')
-        print('ctrl + wheel:         scale up / down')
-        print('shift + wheel:        gamma up / down')
-        print('ctrl + shift + wheel: increase / decrease autoscale')
-        print('                      percentiles')
-        print('left mouse dragged:   pan image')
-        print('')
