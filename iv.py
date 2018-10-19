@@ -49,11 +49,19 @@ class iv:
             
     def onkeypress(self, event):
         print('key pressed: ', event.key)
-        if event.key == 'a':
-            min = np.min(self.image[:])
-            max = np.max(self.image[:])
-            self.offset = min
-            self.scale = 1. / (max - min)
+        if event.key == '?':
+            print('usage: ')
+        elif event.key == 'a':
+            # autoscale between limits
+            self.autoscale(False)
+            return
+        elif event.key == 'A':
+            # autoscale between user-selected percentiles
+            self.autoscale(True)
+            return
+        elif event.key == 'c':
+            # toggle on-change autoscale
+            self.onchange_autoscale = not self.onchange_autoscale
         elif event.key == 'G':
             self.gamma = 1.
         elif event.key == 'O':
@@ -71,8 +79,14 @@ class iv:
             self.shift = True
         elif event.key == 'left':
             self.imind = np.mod(self.imind - 1, self.nims)
+            if self.onchange_autoscale:
+                self.autoscale()
+                return
         elif event.key == 'right':
             self.imind = np.mod(self.imind + 1, self.nims)
+            if self.onchange_autoscale:
+                self.autoscale()
+                return
         else:
             return
         self.updateImage()
@@ -87,17 +101,49 @@ class iv:
             self.shift = False
     
     def onscroll(self, event):
-        if event.key == 'control':
+        if event.key == 'ctrl+shift':
+            # autoscale percentiles
+            self.prctile *= np.power(1.1, event.step)
+            self.prctile = np.minimum(100, self.prctile)
+            print('auto percentiles: [%3.5f, %3.5f]' % (self.prctile, 100 - self.prctile))
+            event.key = 'A'
+            self.onkeypress(event)
+        elif event.key == 'control':
+            # scale
             self.scale *= np.power(1.1, event.step)
             print('scale: %f', self.scale)
         elif event.key == 'shift':
+            # gamma
             self.gamma *= np.power(1.1, event.step)
             print('gamma: %f', self.gamma)
-        else:
+        elif event.inaxes:
+            # zoom when inside image axes
             factor = np.power(self.zoom_factor, -event.step)
             self.zoom([event.xdata, event.ydata], factor)
             return
+        else:
+            # scroll through images when outside of axes
+            self.imind = int(np.mod(self.imind - event.step, self.nims))
+            print('image %d / %d' % (self.imind + 1, self.nims))
+            if self.onchange_autoscale:
+                self.autoscale()
+                return
         self.updateImage()
+        
+    def autoscale(self, with_prctiles = False):
+        # autoscale between user-selected percentiles
+        if with_prctiles:
+            min, max = np.percentile(self.image[:, :, :, self.imind], (self.prctile, 100 - self.prctile))
+        else:
+            min = np.min(self.image[:])
+            max = np.max(self.image[:])
+        self.offset = min
+        self.scale = 1. / (max - min)
+        print('scale: %3.5f, offset: %3.5f' % (self.scale, self.offset))
+        self.updateImage()
+        
+    def reset_zoom(self):
+        self.ih.axes.axis(self.lims_orig)
         
     def zoom(self, pos, factor):
         lims = self.ih.axes.axis();
@@ -133,12 +179,8 @@ class iv:
             self.ih.axes.axis(lims)
         return
         
-    def reset_zoom(self):
-        self.ih.axes.axis(self.lims_orig)
-        
-        
     def updateImage(self):
-        self.ih.set_data(np.power(np.maximum(0., np.minimum(1., self.image[:, :, :, self.imind] * self.scale)), 1. / self.gamma))
+        self.ih.set_data(np.power(np.maximum(0., np.minimum(1., (self.image[:, :, :, self.imind] - self.offset) * self.scale)), 1. / self.gamma))
     
     def __init__(self, image):
         # make input 4D (width x height x channels x images)
@@ -150,6 +192,8 @@ class iv:
         self.scale = 1.
         self.gamma = 1.
         self.offset = 0.
+        self.prctile = 0.1
+        self.onchange_autoscale = False
         self.imind = 0
         self.nims = image.shape[3]
         self.fig, self.ax = plt.subplots()
