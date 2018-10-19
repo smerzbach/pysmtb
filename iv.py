@@ -14,12 +14,12 @@ class iv:
     x_stop_at_orig = True
     y_stop_at_orig = True
     
-    def __init__(self, image, transposeFrames=False, transposeCollage=False):
+    def __init__(self, image, transposeFrames=False, transposeCollage=False, borderWidth=0):
         # make input 4D (width x height x channels x images)
         while len(image.shape) < 4:
             image = np.reshape(image, image.shape + (1, ))
         self.w, self.h, self.nc = image.shape[0 : 3]
-        self.border_width = 0
+        self.border_width = borderWidth
         self.image = image
         self.scale = 1.
         self.gamma = 1.

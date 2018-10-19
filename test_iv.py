@@ -26,4 +26,4 @@ if __name__ == "__main__":
     iv = importlib.reload(iv)
     #ims = np.random.rand(10, 10, 3, 4)
     ims = rand_im(100, 100, 3, 4, [10, 10, 3])
-    iv.iv(ims)
+    iv.iv(ims, borderWidth = 2)
