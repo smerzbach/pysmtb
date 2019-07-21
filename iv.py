@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 class iv:
-    zoom_factor = 1.5
+    zoom_factor = 1.1
     x_zoom = True
     y_zoom = True
     x_stop_at_orig = True
@@ -136,6 +136,7 @@ class iv:
         
     def reset_zoom(self):
         self.ih.axes.axis(self.lims_orig)
+        self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
         lims = self.ih.axes.axis();
@@ -211,6 +212,7 @@ class iv:
                                self.cur_xlims[1] + delta_x, 
                                self.cur_ylims[0] + delta_y,
                                self.cur_ylims[1] + delta_y))
+            self.fig.canvas.draw()
             self.x_start += (delta_x - self.prev_delta_x)
             self.y_start += (delta_y - self.prev_delta_y)
             self.prev_delta_x = delta_x
