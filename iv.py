@@ -34,7 +34,7 @@ class iv:
         self.imind = 0 # currently selected image
         self.nims = image.shape[3]
         self.fig, self.ax = plt.subplots()
-        self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
+        self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
         plt.tight_layout()
         self.updateImage()
         if self.onchange_autoscale:
@@ -49,8 +49,9 @@ class iv:
         self.cid = self.fig.canvas.mpl_connect('key_press_event', self.onkeypress)
         self.cid = self.fig.canvas.mpl_connect('key_release_event', self.onkeyrelease)
         self.cid = self.fig.canvas.mpl_connect('scroll_event', self.onscroll)
-        plt.show(block=True)
+        #plt.show(block=True)
         #plt.pause(10)
+        plt.show(block=False)
         
     def print_usage(self):
         print(' ')
@@ -130,7 +131,7 @@ class iv:
     
     def switch_to_single_image(self):
         if self.is_collage:
-            self.ih = self.ax.imshow(np.zeros((self.w, self.h, self.nc)))
+            self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
         self.is_collage = False
         
     def reset_zoom(self):
@@ -166,9 +167,17 @@ class iv:
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
             lims = (xlim[0], xlim[1], ylim[0], ylim[1])
             self.ih.axes.axis(lims)
+            self.fig.canvas.draw()
         return
         
     def tonemap(self, im):
+        if im.shape[2] == 1:
+            im = np.repeat(im, 3, axis=2)
+        elif im.shape[2] == 2:
+            im = np.concatenate((im, np.zeros((im.shape[0], im.shape[1], 2), dtype=im.dtype)), axis=2)
+        elif im.shape[2] != 3:
+            # project to RGB
+            raise Exception('spectral to RGB conversion not implemented')
         return np.power(np.maximum(0., np.minimum(1., (im - self.offset) * self.scale)), 1. / self.gamma)
         
     def updateImage(self):
@@ -176,6 +185,7 @@ class iv:
             self.collage()
         else:
             self.ih.set_data(self.tonemap(self.image[:, :, :, self.imind]))
+        self.fig.canvas.draw()
     
     def onclick(self, event):
         if event.dblclick:
