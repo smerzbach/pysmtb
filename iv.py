@@ -61,8 +61,13 @@ class iv(QMainWindow, QApplication):
         shell = get_ipython()
         shell.magic('%matplotlib qt')
         
-        # make input 4D (width x height x channels x images)
-        self.images = args
+        # store list of input images
+        if len(args) == 1 and len(args[0].shape) == 4:
+            self.images = [[]] * args[0].shape[3]
+            for imind in range(args[0].shape[3]):
+                self.images[imind] = args[0][:, :, :, imind]
+        else:
+            self.images = args
         for imind, image in enumerate(self.images):
             while len(self.images[imind].shape) < 3:
                 self.images[imind] = np.reshape(self.images[imind], self.images[imind].shape + (1, ))
