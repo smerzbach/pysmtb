@@ -17,7 +17,7 @@ import types
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QShortcut, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QShortcut, QVBoxLayout, QWidget
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
@@ -88,7 +88,6 @@ class iv(QMainWindow, QApplication):
         
         self.initUI()
         
-        self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
         self.ax.set_xticks([])
         self.ax.set_yticks([])
         #plt.tight_layout()
@@ -152,18 +151,27 @@ class iv(QMainWindow, QApplication):
         self.uiLEOffset.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEOffset))
         self.uiLabelModifiers = QLabel('')
         
-        vbox = QVBoxLayout()
-        vbox.addWidget(self.uiLabelModifiers)
-        vbox.addWidget(self.uiLEScale)
-        vbox.addWidget(self.uiLEGamma)
-        vbox.addWidget(self.uiLEOffset)
+        form = QFormLayout()
+        form.addRow(QLabel('modifiers:'), self.uiLabelModifiers)
+        form.addRow(QLabel('scale:'), self.uiLEScale)
+        form.addRow(QLabel('gamma:'), self.uiLEGamma)
+        form.addRow(QLabel('offset:'), self.uiLEOffset)
         
         hbox = QHBoxLayout()
         hbox.addWidget(self.canvas)
-        hbox.addLayout(vbox)
+        hbox.addLayout(form)
         
         self.widget.setLayout(hbox)
         self.setCentralWidget(self.widget)
+        
+        # make image canvas expand with window
+        sp = self.canvas.sizePolicy()
+        sp.setHorizontalStretch(1)
+        sp.setVerticalStretch(1)
+        self.canvas.setSizePolicy(sp)
+        
+        self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
+        self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         
         # keyboard shortcuts
         scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
@@ -333,6 +341,7 @@ class iv(QMainWindow, QApplication):
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
             lims = (xlim[0], xlim[1], ylim[0], ylim[1])
             self.ih.axes.axis(lims)
+            self.ax.set_position(Bbox([[0, 0], [1, 1]]))
             self.fig.canvas.draw()
         return
         
