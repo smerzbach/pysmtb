@@ -173,11 +173,11 @@ class iv(QMainWindow, QApplication):
             self.uiCBCollageActive.setTristate(False)
             self.uiCBCollageActive.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageActive, state))
             self.uiCBCollageTranspose = QCheckBox('transpose')
-            self.uiCBCollageTranspose.setCheckState(self.collageActive)
+            self.uiCBCollageTranspose.setCheckState(self.collageTranspose)
             self.uiCBCollageTranspose.setTristate(False)
             self.uiCBCollageTranspose.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTranspose, state))
             self.uiCBCollageTransposeIms = QCheckBox('transpose images')
-            self.uiCBCollageTransposeIms.setCheckState(self.collageActive)
+            self.uiCBCollageTransposeIms.setCheckState(self.collageTransposeIms)
             self.uiCBCollageTransposeIms.setTristate(False)
             self.uiCBCollageTransposeIms.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTransposeIms, state))
 
@@ -218,7 +218,7 @@ class iv(QMainWindow, QApplication):
         closeShortcut.activated.connect(self.close)
         QShortcut(QKeySequence('a'), self.widget).activated.connect(self.autoscale)
         QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self.toggleautoscaleUsePrctiles)
-        
+
     def callbackLineEdit(self, ui):
         if ui == self.uiLEScale:
             tmp = self.scale
@@ -262,13 +262,13 @@ class iv(QMainWindow, QApplication):
             self.autoscale()
         elif ui == self.uiCBCollageActive:
             self.collageActive = bool(state)
-            self.updateImg()
+            self.updateImage()
         elif ui == self.uiCBCollageTranspose:
             self.collageTranspose = bool(state)
-            self.updateImg()
+            self.updateImage()
         elif ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
-            self.updateImg()
+            self.updateImage()
 
     '''
     @MyPyQtSlot()
