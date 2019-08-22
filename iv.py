@@ -62,17 +62,19 @@ class iv(QMainWindow, QApplication):
         
         shell = get_ipython()
         shell.magic('%matplotlib qt')
-        
+
         # store list of input images
-        if len(args) == 1 and len(args[0].shape) == 4:
+        if len(args) == 1 and isinstance(args[0], np.ndarray) and len(args[0].shape) == 4:
             self.images = [[]] * args[0].shape[3]
             for imind in range(args[0].shape[3]):
                 self.images[imind] = args[0][:, :, :, imind]
+        elif len(args) == 1 and (isinstance(args[0], list) or isinstance(args[0], tuple)):
+            self.images = list(args[0])
         else:
-            self.images = args
-        for imind, image in enumerate(self.images):
-            while len(self.images[imind].shape) < 3:
-                self.images[imind] = np.reshape(self.images[imind], self.images[imind].shape + (1, ))
+            self.images = list(args)
+        for imind in range(len(self.images)):
+            self.images[imind] = np.atleast_3d(self.images[imind])
+
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
         self.w, self.h, self.nc = self.images[self.imind].shape[0 : 3]
@@ -81,8 +83,8 @@ class iv(QMainWindow, QApplication):
         self.gamma = 1.
         self.offset = 0.
         self.autoscalePrctile = 0.1
-        self.autoscaleUsePrctiles = False
-        self.autoscaleOnChange = True
+        self.autoscaleUsePrctiles = True
+        self.autoscaleOnChange = False
         self.autoscalePerImg = False
         self.collageActive = False
         self.collageTranspose = False
@@ -253,10 +255,12 @@ class iv(QMainWindow, QApplication):
     def callbackCheckBox(self, ui, state):
         if ui == self.uiCBAutoscaleUsePrctiles:
             self.autoscaleUsePrctiles = bool(state)
-            self.autoscale()
+            if self.autoscaleOnChange:
+                self.autoscale()
         elif ui == self.uiCBAutoscaleOnChange:
             self.autoscaleOnChange = bool(state)
-            self.autoscale()
+            if self.autoscaleOnChange:
+                self.autoscale()
         elif ui == self.uiCBAutoscalePerImg:
             self.autoscalePerImg = bool(state)
             self.autoscale()
@@ -353,7 +357,8 @@ class iv(QMainWindow, QApplication):
         nr = int(np.ceil(self.nims / nc))
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
-        coll = np.append(self.image, np.zeros((self.w, self.h, self.nc, padding)), axis=3)
+        ims = self.images + [np.zeros((self.w, self.h, self.nc))] * padding
+        coll = np.stack(ims, axis=3)
         coll = np.reshape(coll, (self.w, self.h, self.nc, nc, nr))
         if self.border_width:
             # pad each patch by border if requested
