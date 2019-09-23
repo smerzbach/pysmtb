@@ -8,6 +8,7 @@ Created on Thu Oct 18 19:24:05 2018
 
 from datetime import datetime
 from functools import wraps
+import imageio
 from IPython import get_ipython
 import numpy as np
 import sys
@@ -425,6 +426,8 @@ class iv(QMainWindow, QApplication):
         return
         
     def tonemap(self, im):
+        if isinstance(im, np.matrix):
+            im = np.array(im)
         if im.shape[2] == 1:
             im = np.repeat(im, 3, axis=2)
         elif im.shape[2] == 2:
@@ -601,3 +604,5 @@ class iv(QMainWindow, QApplication):
                 return
         self.updateImage()
     
+    def save(self, ofname):
+        imageio.imwrite(ofname, np.array(self.ih.get_array()))
