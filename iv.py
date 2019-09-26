@@ -99,7 +99,9 @@ class iv(QMainWindow, QApplication):
         self.updateImage()
         if self.autoscaleOnChange:
             self.autoscale()
-        self.lims_orig = self.ih.axes.axis()
+        self.cur_xlims = self.ih.axes.axis()[0 : 2]
+        self.cur_ylims = self.ih.axes.axis()[2 :]
+        
         self.mouse_down = 0
         self.x_start = 0
         self.y_start = 0
@@ -388,7 +390,9 @@ class iv(QMainWindow, QApplication):
         self.collageActive = False
         
     def reset_zoom(self):
-        self.ih.axes.axis(self.lims_orig)
+        height, width = self.images[self.imind].shape[:2]
+        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
+        self.ih.axes.axis(lims)
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
@@ -409,13 +413,13 @@ class iv(QMainWindow, QApplication):
             ylim = [pos[1] - factor * below, pos[1] + factor * above];
         
         # no zooming out beyond original zoom level
+        height, width = self.images[self.imind].shape[:2]
+        
         if self.x_stop_at_orig:
-            #xlim = [np.minimum(self.lims_orig[0], xlim[0]), np.maximum(self.lims_orig[1], xlim[1])];
-            xlim = [np.maximum(self.lims_orig[0], xlim[0]), np.minimum(self.lims_orig[1], xlim[1])];
+            xlim = [np.maximum(-0.5, xlim[0]), np.minimum(width - 0.5, xlim[1])]
         
         if self.y_stop_at_orig:
-            #ylim = [np.maximum(self.lims_orig[2], ylim[0]), np.minimum(self.lims_orig[3], ylim[1])];
-            ylim = [np.minimum(self.lims_orig[2], ylim[0]), np.maximum(self.lims_orig[3], ylim[1])];
+            ylim = [np.maximum(-0.5, ylim[0]), np.minimum(height - 0.5, ylim[1])]
         
         # update axes
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
@@ -442,10 +446,9 @@ class iv(QMainWindow, QApplication):
             self.collage()
         else:
             self.ih.set_data(self.tonemap(self.images[self.imind]))
-        height, width = self.ih.get_size()
-        self.ax.set(xlim = (-0.5, width - 0.5), ylim = (-0.5, height - 0.5))
-        self.ax.set_aspect(height / width)
-        self.ih.axes.axis(self.lims_orig)
+        height, width = self.images[self.imind].shape[:2]
+        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
+        self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
         self.fig.canvas.draw()
     
     def setScale(self, scale, update=True):
