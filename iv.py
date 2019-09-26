@@ -442,6 +442,10 @@ class iv(QMainWindow, QApplication):
             self.collage()
         else:
             self.ih.set_data(self.tonemap(self.images[self.imind]))
+        height, width = self.ih.get_size()
+        self.ax.set(xlim = (-0.5, width - 0.5), ylim = (-0.5, height - 0.5))
+        self.ax.set_aspect(height / width)
+        self.ih.axes.axis(self.lims_orig)
         self.fig.canvas.draw()
     
     def setScale(self, scale, update=True):
