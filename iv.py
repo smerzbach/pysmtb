@@ -401,16 +401,16 @@ class iv(QMainWindow, QApplication):
         ylim = lims[2 : ]
         
         # compute interval lengths left, right, below and above cursor
-        left = pos[0] - xlim[0];
-        right = xlim[1] - pos[0];
-        below = pos[1] - ylim[0];
-        above = ylim[1] - pos[1];
+        left = pos[0] - xlim[0]
+        right = xlim[1] - pos[0]
+        below = pos[1] - ylim[0]
+        above = ylim[1] - pos[1]
         
         # zoom in or out
         if self.x_zoom:
-            xlim = [pos[0] - factor * left, pos[0] + factor * right];
+            xlim = [pos[0] - factor * left, pos[0] + factor * right]
         if self.y_zoom:
-            ylim = [pos[1] - factor * below, pos[1] + factor * above];
+            ylim = [pos[1] - factor * below, pos[1] + factor * above]
         
         # no zooming out beyond original zoom level
         height, width = self.images[self.imind].shape[:2]
