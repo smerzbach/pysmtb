@@ -32,6 +32,8 @@ from matplotlib.transforms import Bbox
 from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 
+import torch
+
 '''
 def MyPyQtSlot(*args):
     if len(args) == 0 or isinstance(args[0], types.FunctionType):
@@ -65,16 +67,46 @@ class iv(QMainWindow, QApplication):
         shell.magic('%matplotlib qt')
 
         # store list of input images
-        if len(args) == 1 and isinstance(args[0], np.ndarray) and len(args[0].shape) == 4:
+        if len(args) == 1 and isinstance(args[0], torch.Tensor):
+            # handle torch.Tensor input
+            if args[0].ndim <= 3:
+                self.images = [args[0].detach().cpu().numpy()]
+            elif args[0].ndim == 4:
+                # probably a torch tensor with dimensions [batch, channels, y, x]
+                self.images = [[]] * args[0].shape[0]
+                tmp = args[0].detach().cpu().numpy().transpose((2, 3, 1, 0))
+                for imind in range(tmp.shape[3]):
+                    self.images[imind] = tmp[:, :, :, imind]
+                del tmp
+            else:
+                raise Exception('torch tensors can at most have 4 dimensions')
+        
+        elif len(args) == 1 and isinstance(args[0], np.ndarray) and len(args[0].shape) == 4:
+            # handle 4D numpy.ndarray input by slicing in 4th dimension
             self.images = [[]] * args[0].shape[3]
             for imind in range(args[0].shape[3]):
                 self.images[imind] = args[0][:, :, :, imind]
+        
         elif len(args) == 1 and (isinstance(args[0], list) or isinstance(args[0], tuple)):
             self.images = list(args[0])
+        
         else:
             self.images = list(args)
+        
         for imind in range(len(self.images)):
+            if isinstance(self.images[imind], torch.Tensor):
+                self.images[imind] = self.images[imind].detach().cpu().numpy()
+                if self.images[imind].ndim == 4:
+                    # probably a torch tensor with dimensions [batch, channels, y, x]
+                    self.images[imind] = self.images[imind].transpose((2, 3, 1, 0))
+                elif self.images[imind].ndim > 4:
+                    raise Exception('torch tensors can at most have 4 dimensions')
+                    
             self.images[imind] = np.atleast_3d(self.images[imind])
+            if self.images[imind].shape[2] != 1 and self.images[imind].shape[2] != 3:
+                if self.images[imind].ndim == 4:
+                    
+                    self.images[imind] = self.images[imind].transpose((2, 3, 1, 0))
 
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
@@ -114,6 +146,8 @@ class iv(QMainWindow, QApplication):
         self.alt = False
         self.control = False
         self.shift = False
+        self.prev_delta_x = 0
+        self.prev_delta_y = 0
         #plt.show(block=True)
         #plt.pause(10)
         #plt.show(block=False)
@@ -378,8 +412,10 @@ class iv(QMainWindow, QApplication):
             else:
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
         coll = np.reshape(coll, ((self.w + self.border_width) * nc, (self.h + self.border_width) * nr, self.nc))
+        
         #self.ih.set_data(self.tonemap(coll))
         self.ih = self.ax.imshow(self.tonemap(coll))
+        self.reset_zoom()
         # todo: update original axis limits?
         #self.ih.axes.relim()
         #self.ih.axes.autoscale_view(True,True,True)        
@@ -390,7 +426,7 @@ class iv(QMainWindow, QApplication):
         self.collageActive = False
         
     def reset_zoom(self):
-        height, width = self.images[self.imind].shape[:2]
+        height, width = self.ih.get_size()
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ih.axes.axis(lims)
         self.fig.canvas.draw()
@@ -413,7 +449,7 @@ class iv(QMainWindow, QApplication):
             ylim = [pos[1] - factor * below, pos[1] + factor * above]
         
         # no zooming out beyond original zoom level
-        height, width = self.images[self.imind].shape[:2]
+        height, width = self.ih.get_size()
         
         if self.x_stop_at_orig:
             xlim = [np.maximum(-0.5, xlim[0]), np.minimum(width - 0.5, xlim[1])]
