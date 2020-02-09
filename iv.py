@@ -13,6 +13,7 @@ from IPython import get_ipython
 import numpy as np
 import sys
 import traceback
+import time
 import types
 
 import PyQt5.QtCore as QtCore
@@ -111,7 +112,6 @@ class iv(QMainWindow, QApplication):
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
         self.w, self.h, self.nc = self.images[self.imind].shape[0 : 3]
-        self.border_width = 1
         self.scale = 1.
         self.gamma = 1.
         self.offset = 0.
@@ -122,6 +122,9 @@ class iv(QMainWindow, QApplication):
         self.collageActive = False
         self.collageTranspose = False
         self.collageTransposeIms = False
+        self.collage_nc = int(np.ceil(np.sqrt(self.nims)))
+        self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
+        self.collage_border_width = 0
         
         self.initUI()
         
@@ -152,7 +155,7 @@ class iv(QMainWindow, QApplication):
         #plt.pause(10)
         #plt.show(block=False)
         self.show()
-        
+    
     def notify(self, obj, event):
         isex = False
         try:
@@ -202,7 +205,7 @@ class iv(QMainWindow, QApplication):
         self.uiCBAutoscaleOnChange.setCheckState(self.autoscaleOnChange)
         self.uiCBAutoscaleOnChange.setTristate(False)
         self.uiCBAutoscaleOnChange.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleOnChange, state))
-        if self.nims:
+        if self.nims > 1:
             self.uiCBAutoscalePerImg = QCheckBox('per image')
             self.uiCBAutoscalePerImg.setCheckState(self.autoscalePerImg)
             self.uiCBAutoscalePerImg.setTristate(False)
@@ -219,6 +222,15 @@ class iv(QMainWindow, QApplication):
             self.uiCBCollageTransposeIms.setCheckState(self.collageTransposeIms)
             self.uiCBCollageTransposeIms.setTristate(False)
             self.uiCBCollageTransposeIms.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTransposeIms, state))
+            self.uiLECollageNr = QLineEdit(str(self.collage_nr))
+            self.uiLECollageNr.setMinimumWidth(200)
+            self.uiLECollageNr.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNr))
+            self.uiLECollageNc = QLineEdit(str(self.collage_nc))
+            self.uiLECollageNc.setMinimumWidth(200)
+            self.uiLECollageNc.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNc))
+            self.uiLECollageBW = QLineEdit(str(self.collage_border_width))
+            self.uiLECollageBW.setMinimumWidth(200)
+            self.uiLECollageBW.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBW))
 
         form = QFormLayout()
         form.addRow(QLabel('modifiers:'), self.uiLabelModifiers)
@@ -228,11 +240,14 @@ class iv(QMainWindow, QApplication):
         form.addRow(QLabel('autoScale:'), self.uiCBAutoscaleUsePrctiles)
         form.addRow(QLabel('percentile:'), self.uiLEAutoscalePrctile)
         form.addRow(QLabel('autoScale:'), self.uiCBAutoscaleOnChange)
-        if self.nims:
+        if self.nims > 1:
             form.addRow(QLabel('autoScale:'), self.uiCBAutoscalePerImg)
             form.addRow(QLabel('collage:'), self.uiCBCollageActive)
             form.addRow(QLabel('collage:'), self.uiCBCollageTranspose)
             form.addRow(QLabel('collage:'), self.uiCBCollageTransposeIms)
+            form.addRow(QLabel('collage #rows:'), self.uiLECollageNr)
+            form.addRow(QLabel('collage #cols:'), self.uiLECollageNc)
+            form.addRow(QLabel('collage #BW:'), self.uiLECollageBW)
 
         hbox = QHBoxLayout()
         hbox.addWidget(self.canvas)
@@ -258,37 +273,33 @@ class iv(QMainWindow, QApplication):
         QShortcut(QKeySequence('a'), self.widget).activated.connect(self.autoscale)
         QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self.toggleautoscaleUsePrctiles)
 
+    #@MyPyQtSlot("bool")
     def callbackLineEdit(self, ui):
+        try:
+            tmp = float(ui.text())
+        except:
+            return
+        
         if ui == self.uiLEScale:
-            tmp = self.scale
-            try:
-                tmp = float(ui.text())
-            except:
-                print('')
             self.setScale(tmp)
         elif ui == self.uiLEGamma:
-            tmp = self.gamma
-            try:
-                tmp = float(ui.text())
-            except:
-                print('')
             self.setGamma(tmp)
         elif ui == self.uiLEOffset:
-            tmp = self.offset
-            try:
-                tmp = float(ui.text())
-            except:
-                print('')
             self.setOffset(tmp)
         elif ui == self.uiLEAutoscalePrctile:
-            tmp = self.autoscalePrctile
-            try:
-                tmp = float(ui.text())
-            except:
-                print('')
             self.autoscalePrctile = tmp
             self.autoscale()
+        elif ui == self.uiLECollageNr:
+            self.collage_nr = int(tmp)
+            self.collage()
+        elif ui == self.uiLECollageNc:
+            self.collage_nc = int(tmp)
+            self.collage()
+        elif ui == self.uiLECollageBW:
+            self.collage_border_width = int(tmp)
+            self.collage()
 
+    #@MyPyQtSlot("bool")
     def callbackCheckBox(self, ui, state):
         if ui == self.uiCBAutoscaleUsePrctiles:
             self.autoscaleUsePrctiles = bool(state)
@@ -390,17 +401,30 @@ class iv(QMainWindow, QApplication):
         self.autoscale()
 
     def collage(self):
-        nc = int(np.ceil(np.sqrt(self.nims)))
-        nr = int(np.ceil(self.nims / nc))
+        if self.collage_nr * self.collage_nc < self.nims:
+            nc = int(np.ceil(np.sqrt(self.nims)))
+            nr = int(np.ceil(self.nims / nc))
+            self.collage_nr = nr
+            self.collage_nc = nc
+            self.uiLECollageNr.blockSignals(True)
+            self.uiLECollageNc.blockSignals(True)
+            self.uiLECollageNr.setText(str(nr))
+            self.uiLECollageNc.setText(str(nc))
+            self.uiLECollageNr.blockSignals(False)
+            self.uiLECollageNc.blockSignals(False)
+        else:
+            nc = self.collage_nc
+            nr = self.collage_nr
+        
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
         ims = self.images + [np.zeros((self.w, self.h, self.nc))] * padding
         coll = np.stack(ims, axis=3)
         coll = np.reshape(coll, (self.w, self.h, self.nc, nc, nr))
-        if self.border_width:
+        if self.collage_border_width:
             # pad each patch by border if requested
-            coll = np.append(coll, np.zeros((self.border_width, ) + coll.shape[1 : 5]), axis=0)
-            coll = np.append(coll, np.zeros((coll.shape[0], self.border_width) + coll.shape[2 : 5]), axis=1)
+            coll = np.append(coll, np.zeros((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
+            coll = np.append(coll, np.zeros((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
         if self.collageTranspose:
             if self.collageTransposeIms:
                 coll = np.transpose(coll, (4, 1, 3, 0, 2))
@@ -411,17 +435,20 @@ class iv(QMainWindow, QApplication):
                 coll = np.transpose(coll, (3, 1, 4, 0, 2))
             else:
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((self.w + self.border_width) * nc, (self.h + self.border_width) * nr, self.nc))
+        coll = np.reshape(coll, ((self.w + self.collage_border_width) * nc, (self.h + self.collage_border_width) * nr, self.nc))
         
         #self.ih.set_data(self.tonemap(coll))
+        self.ax.clear()
         self.ih = self.ax.imshow(self.tonemap(coll))
-        self.reset_zoom()
-        # todo: update original axis limits?
-        #self.ih.axes.relim()
-        #self.ih.axes.autoscale_view(True,True,True)        
+        
+        height, width = self.ih.get_size()
+        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
+        self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
+        self.fig.canvas.draw()
     
     def switch_to_single_image(self):
         if self.collageActive:
+            self.ax.clear()
             self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
         self.collageActive = False
         
@@ -429,6 +456,7 @@ class iv(QMainWindow, QApplication):
         height, width = self.ih.get_size()
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ih.axes.axis(lims)
+        self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
@@ -481,11 +509,15 @@ class iv(QMainWindow, QApplication):
         if self.collageActive:
             self.collage()
         else:
+            if self.nims > 1:
+                self.uiCBCollageActive.blockSignals(True)
+                self.uiCBCollageActive.setChecked(False)
+                self.uiCBCollageActive.blockSignals(False)
             self.ih.set_data(self.tonemap(self.images[self.imind]))
-        height, width = self.images[self.imind].shape[:2]
-        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
-        self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
-        self.fig.canvas.draw()
+            height, width = self.ih.get_size()
+            lims = (-0.5, width - 0.5, -0.5, height - 0.5)
+            self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
+            self.fig.canvas.draw()
     
     def setScale(self, scale, update=True):
         self.scale = scale
