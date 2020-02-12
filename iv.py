@@ -183,6 +183,7 @@ class iv(QMainWindow, QApplication):
         self.ax = self.fig.add_subplot(111)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         self.ax.set_anchor('NW')
+        self.ax.get_yaxis().set_inverted(True)
 
         self.uiLabelModifiers = QLabel('')
         self.uiLEScale = QLineEdit(str(self.scale))
@@ -262,8 +263,9 @@ class iv(QMainWindow, QApplication):
         sp.setVerticalStretch(1)
         self.canvas.setSizePolicy(sp)
         
-        self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
+        self.ih = self.ax.imshow(np.zeros(self.images[self.imind].shape[:2] + (3,)), origin='upper')
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
+        self.ax.get_yaxis().set_inverted(True)
 
         # keyboard shortcuts
         #scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
@@ -418,9 +420,10 @@ class iv(QMainWindow, QApplication):
         
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
-        ims = self.images + [np.zeros((self.w, self.h, self.nc))] * padding
+        h, w, numChans = self.images[0].shape[:3]
+        ims = self.images + [np.zeros((w, h, numChans))] * padding
         coll = np.stack(ims, axis=3)
-        coll = np.reshape(coll, (self.w, self.h, self.nc, nc, nr))
+        coll = np.reshape(coll, (w, h, numChans, nc, nr))
         if self.collage_border_width:
             # pad each patch by border if requested
             coll = np.append(coll, np.zeros((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
@@ -435,21 +438,22 @@ class iv(QMainWindow, QApplication):
                 coll = np.transpose(coll, (3, 1, 4, 0, 2))
             else:
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((self.w + self.collage_border_width) * nc, (self.h + self.collage_border_width) * nr, self.nc))
+        coll = np.reshape(coll, ((w + self.collage_border_width) * nc, (h + self.collage_border_width) * nr, numChans))
         
         #self.ih.set_data(self.tonemap(coll))
         self.ax.clear()
-        self.ih = self.ax.imshow(self.tonemap(coll))
+        self.ih = self.ax.imshow(self.tonemap(coll), origin='upper')
         
         height, width = self.ih.get_size()
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
+        self.ax.get_yaxis().set_inverted(True)
         self.fig.canvas.draw()
     
     def switch_to_single_image(self):
         if self.collageActive:
             self.ax.clear()
-            self.ih = self.ax.imshow(np.zeros((self.w, self.h, 3)))
+            self.ih = self.ax.imshow(np.zeros(self.images[self.imind].shape[:3]), origin='upper')
         self.collageActive = False
         
     def reset_zoom(self):
@@ -457,6 +461,7 @@ class iv(QMainWindow, QApplication):
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ih.axes.axis(lims)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
+        self.ax.get_yaxis().set_inverted(True)
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
@@ -489,6 +494,7 @@ class iv(QMainWindow, QApplication):
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
             lims = (xlim[0], xlim[1], ylim[0], ylim[1])
             self.ih.axes.axis(lims)
+            self.ax.get_yaxis().set_inverted(True)
             self.ax.set_position(Bbox([[0, 0], [1, 1]]))
             self.fig.canvas.draw()
         return
@@ -513,10 +519,17 @@ class iv(QMainWindow, QApplication):
                 self.uiCBCollageActive.blockSignals(True)
                 self.uiCBCollageActive.setChecked(False)
                 self.uiCBCollageActive.blockSignals(False)
-            self.ih.set_data(self.tonemap(self.images[self.imind]))
+            height, width = self.ih.get_size()
+            if height != self.images[self.imind].shape[0] or width != self.images[self.imind].shape[1]:
+                # image size changed, create new axes
+                self.ax.clear()
+                self.ih = self.ax.imshow(self.tonemap(self.images[self.imind]))
+            else:
+                self.ih.set_data(self.tonemap(self.images[self.imind]))
             height, width = self.ih.get_size()
             lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
+            self.ax.get_yaxis().set_inverted(True)
             self.fig.canvas.draw()
     
     def setScale(self, scale, update=True):
