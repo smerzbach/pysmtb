@@ -421,9 +421,9 @@ class iv(QMainWindow, QApplication):
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
         h, w, numChans = self.images[0].shape[:3]
-        ims = self.images + [np.zeros((w, h, numChans))] * padding
+        ims = self.images + [np.zeros((h, w, numChans))] * padding
         coll = np.stack(ims, axis=3)
-        coll = np.reshape(coll, (w, h, numChans, nc, nr))
+        coll = np.reshape(coll, (h, w, numChans, nc, nr))
         if self.collage_border_width:
             # pad each patch by border if requested
             coll = np.append(coll, np.zeros((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
@@ -438,7 +438,7 @@ class iv(QMainWindow, QApplication):
                 coll = np.transpose(coll, (3, 1, 4, 0, 2))
             else:
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((w + self.collage_border_width) * nc, (h + self.collage_border_width) * nr, numChans))
+        coll = np.reshape(coll, ((h + self.collage_border_width) * nc, (w + self.collage_border_width) * nr, numChans))
         
         #self.ih.set_data(self.tonemap(coll))
         self.ax.clear()
