@@ -19,7 +19,7 @@ import types
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QShortcut, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget
 
 import matplotlib
 matplotlib.use('Qt5Agg', warn=False)
@@ -59,7 +59,7 @@ class iv(QMainWindow, QApplication):
     x_stop_at_orig = True
     y_stop_at_orig = True
     
-    def __init__(self, *args):
+    def __init__(self, *args, **kwargs):
         QMainWindow.__init__(self, parent=None)
         timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
         self.setWindowTitle('iv ' + timestamp)
@@ -111,7 +111,6 @@ class iv(QMainWindow, QApplication):
 
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
-        self.w, self.h, self.nc = self.images[self.imind].shape[0 : 3]
         self.scale = 1.
         self.gamma = 1.
         self.offset = 0.
@@ -125,6 +124,22 @@ class iv(QMainWindow, QApplication):
         self.collage_nc = int(np.ceil(np.sqrt(self.nims)))
         self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
         self.collage_border_width = 0
+        self.crop        = kwargs.get('crop', False)
+        self.crop_global = kwargs.get('crop_global', True)
+        if self.crop_global:
+            self.crop = True
+        
+        if self.crop:
+            nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
+            self.xmins = [np.min(nz[1]) for nz in nzs]
+            self.xmaxs = [np.max(nz[1]) + 1 for nz in nzs] # +1 to allow easier indexing
+            self.ymins = [np.min(nz[0]) for nz in nzs]
+            self.ymaxs = [np.max(nz[0]) + 1 for nz in nzs] # +1 to allow easier indexing
+            if self.crop_global:
+                self.xmins = [np.min(self.xmins) for _ in self.xmins]
+                self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
+                self.ymins = [np.min(self.ymins) for _ in self.ymins]
+                self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
         
         self.initUI()
         
@@ -154,6 +169,8 @@ class iv(QMainWindow, QApplication):
         #plt.show(block=True)
         #plt.pause(10)
         #plt.show(block=False)
+        
+        self.setWindowModality(QtCore.Qt.WindowModal)
         self.show()
     
     def notify(self, obj, event):
@@ -232,7 +249,9 @@ class iv(QMainWindow, QApplication):
             self.uiLECollageBW = QLineEdit(str(self.collage_border_width))
             self.uiLECollageBW.setMinimumWidth(200)
             self.uiLECollageBW.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBW))
-
+        self.uiPBCopyClipboard = QPushButton('&copy')
+        self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
+        
         form = QFormLayout()
         form.addRow(QLabel('modifiers:'), self.uiLabelModifiers)
         form.addRow(QLabel('scale:'), self.uiLEScale)
@@ -249,10 +268,16 @@ class iv(QMainWindow, QApplication):
             form.addRow(QLabel('collage #rows:'), self.uiLECollageNr)
             form.addRow(QLabel('collage #cols:'), self.uiLECollageNc)
             form.addRow(QLabel('collage #BW:'), self.uiLECollageBW)
-
+        form_bottom = QFormLayout()
+        form_bottom.addRow(self.uiPBCopyClipboard)
+        vbox = QVBoxLayout()
+        vbox.addLayout(form)
+        vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
+        vbox.addLayout(form_bottom)
+        
         hbox = QHBoxLayout()
         hbox.addWidget(self.canvas)
-        hbox.addLayout(form)
+        hbox.addLayout(vbox)
         
         self.widget.setLayout(hbox)
         self.setCentralWidget(self.widget)
@@ -263,7 +288,7 @@ class iv(QMainWindow, QApplication):
         sp.setVerticalStretch(1)
         self.canvas.setSizePolicy(sp)
         
-        self.ih = self.ax.imshow(np.zeros(self.images[self.imind].shape[:2] + (3,)), origin='upper')
+        self.ih = self.ax.imshow(np.zeros(self.get_img().shape[:2] + (3,)), origin='upper')
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         self.ax.get_yaxis().set_inverted(True)
 
@@ -323,7 +348,11 @@ class iv(QMainWindow, QApplication):
         elif ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
             self.updateImage()
-
+            
+    def callbackPushButton(self, ui):
+        if ui == self.uiPBCopyClipboard:
+            self.copy_to_clipboard()
+    
     '''
     @MyPyQtSlot()
     def slot_text(self):#, ui=None):
@@ -379,22 +408,41 @@ class iv(QMainWindow, QApplication):
         print('left mouse dragged:   pan image')
         print('')
     
+    def get_img(self, i=None):
+        if i is None:
+            i = self.imind
+        im = self.images[i]
+        if self.crop:
+            im = im[self.ymins[i] : self.ymaxs[i], self.xmins[i] : self.xmaxs[i], :]
+        return im
+    
+    def get_imgs(self):
+        return [self.get_img(ind) for ind in range(len(self.images))]
+    
+    def copy_to_clipboard(self):
+        from PyQt5.Qt import QImage
+        im = (255 * self.ih.get_array()).astype(np.uint8)
+        h, w, nc = im.shape[:3]
+        im = QImage(im.tobytes(), w, h, nc * w, QImage.Format_RGB888)
+        c = QApplication.clipboard()
+        c.setImage(im)
+    
     def autoscale(self):
         # autoscale between user-selected percentiles
         if self.autoscaleUsePrctiles:
             if self.autoscalePerImg:
-                lower, upper = np.percentile(self.images[self.imind], (self.autoscalePrctile, 100 - self.autoscalePrctile))
+                lower, upper = np.percentile(self.get_img(), (self.autoscalePrctile, 100 - self.autoscalePrctile))
             else:
-                limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile)) for image in self.images]
+                limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile)) for image in self.get_imgs()]
                 lower = np.min([lims[0] for lims in limits])
                 upper= np.max([lims[1] for lims in limits])
         else:
             if self.autoscalePerImg:
-                lower = np.min(self.images[self.imind])
-                upper = np.max(self.images[self.imind])
+                lower = np.min(self.get_img())
+                upper = np.max(self.get_img())
             else:
-                lower = np.min([np.min(image) for image in self.images])
-                upper = np.max([np.max(image) for image in self.images])
+                lower = np.min([np.min(image) for image in self.get_imgs()])
+                upper = np.max([np.max(image) for image in self.get_imgs()])
         self.setOffset(lower, False)
         self.setScale(1. / (upper - lower), True)
 
@@ -420,25 +468,43 @@ class iv(QMainWindow, QApplication):
         
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
-        h, w, numChans = self.images[0].shape[:3]
-        ims = self.images + [np.zeros((h, w, numChans))] * padding
+        h, w, numChans = self.get_img(0).shape[:3]
+        ims = self.get_imgs() + [np.zeros((h, w, numChans))] * padding
         coll = np.stack(ims, axis=3)
         coll = np.reshape(coll, (h, w, numChans, nc, nr))
+        # 0  1  2   3   4
+        # y, x, ch, co, ro
         if self.collage_border_width:
             # pad each patch by border if requested
             coll = np.append(coll, np.zeros((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
             coll = np.append(coll, np.zeros((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
         if self.collageTranspose:
+            nim0 = nr
+            nim1 = nc
             if self.collageTransposeIms:
+                dim0 = w
+                dim1 = h
+                #                          nr w  nc h  ch
                 coll = np.transpose(coll, (4, 1, 3, 0, 2))
             else:
+                dim0 = h
+                dim1 = w
+                #                          nr h  nc w  ch
                 coll = np.transpose(coll, (4, 0, 3, 1, 2))
         else:
+            nim0 = nc
+            nim1 = nr
             if self.collageTransposeIms:
+                dim0 = w
+                dim1 = h
+                #                          nc w  nr h  ch
                 coll = np.transpose(coll, (3, 1, 4, 0, 2))
             else:
+                dim0 = h
+                dim1 = w
+                #                          nc h  nr w  ch
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((h + self.collage_border_width) * nc, (w + self.collage_border_width) * nr, numChans))
+        coll = np.reshape(coll, ((dim0 + self.collage_border_width) * nim0, (dim1 + self.collage_border_width) * nim1, numChans))
         
         #self.ih.set_data(self.tonemap(coll))
         self.ax.clear()
@@ -453,7 +519,7 @@ class iv(QMainWindow, QApplication):
     def switch_to_single_image(self):
         if self.collageActive:
             self.ax.clear()
-            self.ih = self.ax.imshow(np.zeros(self.images[self.imind].shape[:3]), origin='upper')
+            self.ih = self.ax.imshow(np.zeros(self.get_img().shape[:3]), origin='upper')
         self.collageActive = False
         
     def reset_zoom(self):
@@ -520,12 +586,12 @@ class iv(QMainWindow, QApplication):
                 self.uiCBCollageActive.setChecked(False)
                 self.uiCBCollageActive.blockSignals(False)
             height, width = self.ih.get_size()
-            if height != self.images[self.imind].shape[0] or width != self.images[self.imind].shape[1]:
+            if height != self.get_img().shape[0] or width != self.get_img().shape[1]:
                 # image size changed, create new axes
                 self.ax.clear()
-                self.ih = self.ax.imshow(self.tonemap(self.images[self.imind]))
+                self.ih = self.ax.imshow(self.tonemap(self.get_img()))
             else:
-                self.ih.set_data(self.tonemap(self.images[self.imind]))
+                self.ih.set_data(self.tonemap(self.get_img()))
             height, width = self.ih.get_size()
             lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
