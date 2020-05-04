@@ -47,3 +47,10 @@ def strparse(strings, pattern, numeric=False, *args):
         elif len(args) != 0:
             raise Exception('number of type specifiers must equal the number of matching groups in the pattern!')
     return res
+
+def read_exr(fname, outputType=np.float16):
+    import pyexr
+    file = pyexr.open(fname)
+    channels = file.channel_map['all']
+    pixels = file.get(group='all', precision=pyexr.FLOAT)
+    return pixels, channels
