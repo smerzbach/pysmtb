@@ -22,7 +22,10 @@ from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget
 
 import matplotlib
-matplotlib.use('Qt5Agg', warn=False)
+try:
+    matplotlib.use('Qt5Agg')
+except:
+    pass
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
@@ -52,15 +55,19 @@ def MyPyQtSlot(*args):
     return slotdecorator
 '''
 
-class iv(QMainWindow, QApplication):
+class iv(QMainWindow):
     zoom_factor = 1.1
     x_zoom = True
     y_zoom = True
     x_stop_at_orig = True
     y_stop_at_orig = True
-    
+
     def __init__(self, *args, **kwargs):
+        app = QtCore.QCoreApplication.instance()
+        if app is None:
+            app = QApplication([''])
         QMainWindow.__init__(self, parent=None)
+
         timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
         self.setWindowTitle('iv ' + timestamp)
         
@@ -126,20 +133,23 @@ class iv(QMainWindow, QApplication):
         self.collage_border_width = 0
         self.crop        = kwargs.get('crop', False)
         self.crop_global = kwargs.get('crop_global', True)
-        if self.crop_global:
-            self.crop = True
+        self.zoom_factor = 1.1
+        self.x_zoom = True
+        self.y_zoom = True
+        self.x_stop_at_orig = True
+        self.y_stop_at_orig = True
         
-        if self.crop:
-            nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
-            self.xmins = [np.min(nz[1]) for nz in nzs]
-            self.xmaxs = [np.max(nz[1]) + 1 for nz in nzs] # +1 to allow easier indexing
-            self.ymins = [np.min(nz[0]) for nz in nzs]
-            self.ymaxs = [np.max(nz[0]) + 1 for nz in nzs] # +1 to allow easier indexing
-            if self.crop_global:
-                self.xmins = [np.min(self.xmins) for _ in self.xmins]
-                self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
-                self.ymins = [np.min(self.ymins) for _ in self.ymins]
-                self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
+        # pre-compute cropping bounds (tight bounding box around non-zero pixels)
+        nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
+        self.xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
+        self.xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in zip(nzs, self.images)] # +1 to allow easier indexing
+        self.ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
+        self.ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in zip(nzs, self.images)] # +1 to allow easier indexing
+        if self.crop_global:
+            self.xmins = [np.min(self.xmins) for _ in self.xmins]
+            self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
+            self.ymins = [np.min(self.ymins) for _ in self.ymins]
+            self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
         
         self.initUI()
         
@@ -172,19 +182,6 @@ class iv(QMainWindow, QApplication):
         
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.show()
-    
-    def notify(self, obj, event):
-        isex = False
-        try:
-            return QApplication.notify(self, obj, event)
-        except Exception:
-            isex = True
-            print("Unexpected Error")
-            print(traceback.format_exception(*sys.exc_info()))
-            return False
-        finally:
-            if isex:
-                self.quit()
         
     def initUI(self):
         #self.fig = plt.figure(figsize = (10, 10))
@@ -200,7 +197,10 @@ class iv(QMainWindow, QApplication):
         self.ax = self.fig.add_subplot(111)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         self.ax.set_anchor('NW')
-        self.ax.get_yaxis().set_inverted(True)
+        try:
+            self.ax.get_yaxis().set_inverted(True)
+        except Exception:
+            self.ax.invert_yaxis()
 
         self.uiLabelModifiers = QLabel('')
         self.uiLEScale = QLineEdit(str(self.scale))
@@ -290,7 +290,10 @@ class iv(QMainWindow, QApplication):
         
         self.ih = self.ax.imshow(np.zeros(self.get_img().shape[:2] + (3,)), origin='upper')
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
-        self.ax.get_yaxis().set_inverted(True)
+        try:
+            self.ax.get_yaxis().set_inverted(True)
+        except Exception:
+            self.ax.invert_yaxis()
 
         # keyboard shortcuts
         #scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
@@ -513,7 +516,10 @@ class iv(QMainWindow, QApplication):
         height, width = self.ih.get_size()
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
-        self.ax.get_yaxis().set_inverted(True)
+        try:
+            self.ax.get_yaxis().set_inverted(True)
+        except Exception:
+            self.ax.invert_yaxis()
         self.fig.canvas.draw()
     
     def switch_to_single_image(self):
@@ -527,7 +533,10 @@ class iv(QMainWindow, QApplication):
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
         self.ih.axes.axis(lims)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
-        self.ax.get_yaxis().set_inverted(True)
+        try:
+            self.ax.get_yaxis().set_inverted(True)
+        except Exception:
+            self.ax.invert_yaxis()
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
@@ -560,7 +569,10 @@ class iv(QMainWindow, QApplication):
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
             lims = (xlim[0], xlim[1], ylim[0], ylim[1])
             self.ih.axes.axis(lims)
-            self.ax.get_yaxis().set_inverted(True)
+            try:
+                self.ax.get_yaxis().set_inverted(True)
+            except Exception:
+                self.ax.invert_yaxis()
             self.ax.set_position(Bbox([[0, 0], [1, 1]]))
             self.fig.canvas.draw()
         return
@@ -595,7 +607,10 @@ class iv(QMainWindow, QApplication):
             height, width = self.ih.get_size()
             lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
-            self.ax.get_yaxis().set_inverted(True)
+            try:
+                self.ax.get_yaxis().set_inverted(True)
+            except Exception:
+                self.ax.invert_yaxis()
             self.fig.canvas.draw()
     
     def setScale(self, scale, update=True):
