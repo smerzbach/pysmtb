@@ -8,8 +8,68 @@ Created on Wed Jan 14 23:01:57 2020
 
 import numpy as np
 import re
-
 import scipy.io as spio
+
+def collage(images, **kwargs):
+    if isinstance(images, np.ndarray):
+        if images.ndim == 4:
+            images = [images[:, :, :, i] for i in range(images.shape[3])]
+        else:
+            images = [images]
+
+    nims = len(images)
+
+    nc = kwargs.get('nc', int(np.ceil(np.sqrt(nims))))  # number of columns
+    nr = kwargs.get('nr', int(np.ceil(nims / nc)))  # number of rows
+    bw = kwargs.get('bw', 0)  # border width
+    transpose = kwargs.get('transpose', False)
+    transposeIms = kwargs.get('transposeIms', False)
+
+    if nr * nc < nims:
+        nc = int(np.ceil(np.sqrt(nims)))
+        nr = int(np.ceil(nims / nc))
+
+    # pad array so it matches the product nc * nr
+    padding = nc * nr - nims
+    h, w, numChans = images[0].shape[:3]
+    ims = images + [np.zeros((h, w, numChans))] * padding
+    coll = np.stack(ims, axis=3)
+    coll = np.reshape(coll, (h, w, numChans, nc, nr))
+    # 0  1  2   3   4
+    # y, x, ch, co, ro
+    if bw:
+        # pad each patch by border if requested
+        coll = np.append(coll, np.zeros((bw,) + coll.shape[1: 5]), axis=0)
+        coll = np.append(coll, np.zeros((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
+    if transpose:
+        nim0 = nr
+        nim1 = nc
+        if transposeIms:
+            dim0 = w
+            dim1 = h
+            #                          nr w  nc h  ch
+            coll = np.transpose(coll, (4, 1, 3, 0, 2))
+        else:
+            dim0 = h
+            dim1 = w
+            #                          nr h  nc w  ch
+            coll = np.transpose(coll, (4, 0, 3, 1, 2))
+    else:
+        nim0 = nc
+        nim1 = nr
+        if transposeIms:
+            dim0 = w
+            dim1 = h
+            #                          nc w  nr h  ch
+            coll = np.transpose(coll, (3, 1, 4, 0, 2))
+        else:
+            dim0 = h
+            dim1 = w
+            #                          nc h  nr w  ch
+            coll = np.transpose(coll, (3, 0, 4, 1, 2))
+    coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, numChans))
+
+    return coll
 
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
