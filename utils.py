@@ -10,6 +10,21 @@ import numpy as np
 import re
 import scipy.io as spio
 
+def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1., 1.]):
+    from PIL import Image
+    from PIL import ImageFont
+    from PIL import ImageDraw
+
+    if font_path is None:
+        font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
+
+    mask = Image.fromarray(np.zeros(image.shape, dtype=np.uint8))
+    draw = ImageDraw.Draw(mask)
+    font = ImageFont.truetype(font_path, font_size)
+    draw.text((0, 0), label, (255, 255, 255), font=font)
+    mask = np.atleast_3d(np.array(mask, dtype=np.float)[:, :, 0] / 255.).astype(image.dtype)
+    return (1 - mask) * image + mask * np.array(font_color).reshape(1, 1, -1)
+
 def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
     height, width = image.shape[:2]
     pad_width = new_width - width

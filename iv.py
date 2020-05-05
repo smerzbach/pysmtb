@@ -141,6 +141,8 @@ class iv(QMainWindow):
         self.y_zoom = True
         self.x_stop_at_orig = True
         self.y_stop_at_orig = True
+        self.annotate = False
+        self.font_size = 12
         
         self.crop_bounds()
         self.initUI()
@@ -267,6 +269,13 @@ class iv(QMainWindow):
         self.uiCBCropGlobal.setCheckState(self.crop_global)
         self.uiCBCropGlobal.setTristate(False)
         self.uiCBCropGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCropGlobal, state))
+        self.uiCBAnnotate = QCheckBox('enable')
+        self.uiCBAnnotate.setCheckState(self.annotate)
+        self.uiCBAnnotate.setTristate(False)
+        self.uiCBAnnotate.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotate, state))
+        self.uiLEFontSize = QLineEdit(str(self.font_size))
+        self.uiLEFontSize.setMinimumWidth(200)
+        self.uiLEFontSize.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontSize))
         self.uiPBCopyClipboard = QPushButton('&copy')
         self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
         
@@ -289,6 +298,8 @@ class iv(QMainWindow):
             form.addRow(QLabel('collage #BV:'), self.uiLECollageBV)
         form.addRow(QLabel('crop:'), self.uiCBCrop)
         form.addRow(QLabel('crop global:'), self.uiCBCropGlobal)
+        form.addRow(QLabel('annotate:'), self.uiCBAnnotate)
+        form.addRow(QLabel('font size:'), self.uiLEFontSize)
         form_bottom = QFormLayout()
         form_bottom.addRow(self.uiPBCopyClipboard)
         vbox = QVBoxLayout()
@@ -352,6 +363,10 @@ class iv(QMainWindow):
         elif ui == self.uiLECollageBV:
             self.collage_border_value = float(tmp)
             self.collage()
+        elif ui == self.uiLEFontSize:
+            self.font_size = int(tmp)
+            self.updateImage()
+
 
     #@MyPyQtSlot("bool")
     def callbackCheckBox(self, ui, state):
@@ -381,6 +396,9 @@ class iv(QMainWindow):
         elif ui == self.uiCBCropGlobal:
             self.crop_global = bool(state)
             self.crop_bounds()
+            self.updateImage()
+        elif ui == self.uiCBAnnotate:
+            self.annotate = bool(state)
             self.updateImage()
             
     def callbackPushButton(self, ui):
@@ -448,6 +466,9 @@ class iv(QMainWindow):
         im = self.images[i]
         if self.crop:
             im = im[self.ymins[i] : self.ymaxs[i], self.xmins[i] : self.xmaxs[i], :]
+        if self.annotate:
+            from pytb.utils import annotate_image
+            im = annotate_image(im, str(i), font_size=self.font_size)
         return im
     
     def get_imgs(self):
@@ -633,12 +654,13 @@ class iv(QMainWindow):
                 self.uiCBCollageActive.setChecked(False)
                 self.uiCBCollageActive.blockSignals(False)
             height, width = self.ih.get_size()
-            if height != self.get_img().shape[0] or width != self.get_img().shape[1]:
+            im = self.get_img()
+            if height != im.shape[0] or width != im.shape[1]:
                 # image size changed, create new axes
                 self.ax.clear()
-                self.ih = self.ax.imshow(self.tonemap(self.get_img()))
+                self.ih = self.ax.imshow(self.tonemap(im))
             else:
-                self.ih.set_data(self.tonemap(self.get_img()))
+                self.ih.set_data(self.tonemap(im))
             height, width = self.ih.get_size()
             lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
