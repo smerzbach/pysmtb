@@ -38,6 +38,8 @@ import matplotlib.gridspec as gridspec
 
 import torch
 
+from pytb.utils import pad
+
 '''
 def MyPyQtSlot(*args):
     if len(args) == 0 or isinstance(args[0], types.FunctionType):
@@ -131,6 +133,7 @@ class iv(QMainWindow):
         self.collage_nc = int(np.ceil(np.sqrt(self.nims)))
         self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
         self.collage_border_width = 0
+        self.collage_border_value = 0.
         self.crop        = kwargs.get('crop', False)
         self.crop_global = kwargs.get('crop_global', True)
         self.zoom_factor = 1.1
@@ -139,18 +142,7 @@ class iv(QMainWindow):
         self.x_stop_at_orig = True
         self.y_stop_at_orig = True
         
-        # pre-compute cropping bounds (tight bounding box around non-zero pixels)
-        nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
-        self.xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
-        self.xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in zip(nzs, self.images)] # +1 to allow easier indexing
-        self.ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
-        self.ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in zip(nzs, self.images)] # +1 to allow easier indexing
-        if self.crop_global:
-            self.xmins = [np.min(self.xmins) for _ in self.xmins]
-            self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
-            self.ymins = [np.min(self.ymins) for _ in self.ymins]
-            self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
-        
+        self.crop_bounds()
         self.initUI()
         
         self.ax.set_xticks([])
@@ -182,7 +174,22 @@ class iv(QMainWindow):
         
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.show()
-        
+
+    def crop_bounds(self):
+        # pre-compute cropping bounds (tight bounding box around non-zero pixels)
+        nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
+        self.xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
+        self.xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in
+                      zip(nzs, self.images)]  # +1 to allow easier indexing
+        self.ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
+        self.ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in
+                      zip(nzs, self.images)]  # +1 to allow easier indexing
+        if self.crop_global:
+            self.xmins = [np.min(self.xmins) for _ in self.xmins]
+            self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
+            self.ymins = [np.min(self.ymins) for _ in self.ymins]
+            self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
+
     def initUI(self):
         #self.fig = plt.figure(figsize = (10, 10))
         #self.ax = plt.axes([0,0,1,1])#, self.gs[0])
@@ -249,6 +256,17 @@ class iv(QMainWindow):
             self.uiLECollageBW = QLineEdit(str(self.collage_border_width))
             self.uiLECollageBW.setMinimumWidth(200)
             self.uiLECollageBW.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBW))
+            self.uiLECollageBV = QLineEdit(str(self.collage_border_value))
+            self.uiLECollageBV.setMinimumWidth(200)
+            self.uiLECollageBV.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBV))
+        self.uiCBCrop = QCheckBox('enable')
+        self.uiCBCrop.setCheckState(self.crop)
+        self.uiCBCrop.setTristate(False)
+        self.uiCBCrop.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCrop, state))
+        self.uiCBCropGlobal = QCheckBox('enable')
+        self.uiCBCropGlobal.setCheckState(self.crop_global)
+        self.uiCBCropGlobal.setTristate(False)
+        self.uiCBCropGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCropGlobal, state))
         self.uiPBCopyClipboard = QPushButton('&copy')
         self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
         
@@ -268,6 +286,9 @@ class iv(QMainWindow):
             form.addRow(QLabel('collage #rows:'), self.uiLECollageNr)
             form.addRow(QLabel('collage #cols:'), self.uiLECollageNc)
             form.addRow(QLabel('collage #BW:'), self.uiLECollageBW)
+            form.addRow(QLabel('collage #BV:'), self.uiLECollageBV)
+        form.addRow(QLabel('crop:'), self.uiCBCrop)
+        form.addRow(QLabel('crop global:'), self.uiCBCropGlobal)
         form_bottom = QFormLayout()
         form_bottom.addRow(self.uiPBCopyClipboard)
         vbox = QVBoxLayout()
@@ -328,6 +349,9 @@ class iv(QMainWindow):
         elif ui == self.uiLECollageBW:
             self.collage_border_width = int(tmp)
             self.collage()
+        elif ui == self.uiLECollageBV:
+            self.collage_border_value = float(tmp)
+            self.collage()
 
     #@MyPyQtSlot("bool")
     def callbackCheckBox(self, ui, state):
@@ -350,6 +374,13 @@ class iv(QMainWindow):
             self.updateImage()
         elif ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
+            self.updateImage()
+        elif ui == self.uiCBCrop:
+            self.crop = bool(state)
+            self.updateImage()
+        elif ui == self.uiCBCropGlobal:
+            self.crop_global = bool(state)
+            self.crop_bounds()
             self.updateImage()
             
     def callbackPushButton(self, ui):
@@ -471,16 +502,20 @@ class iv(QMainWindow):
         
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
-        h, w, numChans = self.get_img(0).shape[:3]
-        ims = self.get_imgs() + [np.zeros((h, w, numChans))] * padding
+        ims = self.get_imgs()
+        h = np.max([im.shape[0] for im in ims])
+        w = np.max([im.shape[1] for im in ims])
+        numChans = np.max([im.shape[2] for im in ims])
+        ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in ims]
+        ims += [np.zeros((h, w, numChans))] * padding
         coll = np.stack(ims, axis=3)
         coll = np.reshape(coll, (h, w, numChans, nc, nr))
         # 0  1  2   3   4
         # y, x, ch, co, ro
         if self.collage_border_width:
             # pad each patch by border if requested
-            coll = np.append(coll, np.zeros((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
-            coll = np.append(coll, np.zeros((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
+            coll = np.append(coll, self.collage_border_value * np.ones((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
+            coll = np.append(coll, self.collage_border_value * np.ones((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
         if self.collageTranspose:
             nim0 = nr
             nim1 = nc

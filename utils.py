@@ -10,6 +10,24 @@ import numpy as np
 import re
 import scipy.io as spio
 
+def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
+    height, width = image.shape[:2]
+    pad_width = new_width - width
+    pad_height = new_height - height
+    margins0 = [pad_height // 2, pad_height - pad_height // 2]
+    margins1 = [pad_width // 2, pad_width - pad_width // 2]
+
+    image = np.concatenate((value * np.ones((margins0[0],) + image.shape[1:4], dtype=image.dtype),
+                            image,
+                            value * np.ones((margins0[1],) + image.shape[1:4], dtype=image.dtype)), axis=0)
+    image = np.concatenate((value * np.ones((image.shape[0], margins1[0]) + image.shape[2:4], dtype=image.dtype),
+                            image,
+                            value * np.ones((image.shape[0], margins1[1]) + image.shape[2:4], dtype=image.dtype)), axis=1)
+    if not new_num_channels is None and image.shape[2] < new_num_channels:
+        image = np.concatenate((image, value * np.ones(image.shape[:2] + (new_num_channels - image.shape[2]), dtype=image.dtype)), axis=2)
+
+    return image
+
 def collage(images, **kwargs):
     if isinstance(images, np.ndarray):
         if images.ndim == 4:
