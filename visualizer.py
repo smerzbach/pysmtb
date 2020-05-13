@@ -24,3 +24,12 @@ class Plotter(object):
             self.windows[windowName] = self.viz.line(X=np.array([x,x]), Y=np.array([y,y]), env=self.env, name=legendName, opts=opts)
         else:
             self.viz.line(X=np.array([x]), Y=np.array([y]), env=self.env, win=self.windows[windowName], name=legendName, update='append')
+
+    def image(self, windowName, imgNumpyArray, **kwargs):
+        """ Takes numpy array and plots it into visdom """
+        opts = {
+            'caption': windowName,
+            'title': windowName
+        }
+        for key in kwargs: opts[key] = kwargs[key]
+        self.viz.image(imgNumpyArray, opts)
