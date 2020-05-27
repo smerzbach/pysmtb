@@ -21,9 +21,12 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1
     mask = Image.fromarray(np.zeros(image.shape, dtype=np.uint8))
     draw = ImageDraw.Draw(mask)
     font = ImageFont.truetype(font_path, font_size)
-    draw.text((0, 0), label, (255, 255, 255), font=font)
-    mask = np.atleast_3d(np.array(mask, dtype=np.float)[:, :, 0] / 255.).astype(image.dtype)
-    return (1 - mask) * image + mask * np.array(font_color).reshape(1, 1, -1)
+    if image.ndim == 3:
+        draw.text((0, 0), label, (255, 255, 255), font=font)
+    else:
+        draw.text((0, 0), label, (255,), font=font)
+    mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
+    return np.atleast_3d((1 - mask)) * np.atleast_3d(image) + np.atleast_3d(mask) * np.array(font_color).reshape(1, 1, -1)
 
 def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
     height, width = image.shape[:2]
@@ -55,6 +58,7 @@ def collage(images, **kwargs):
     nc = kwargs.get('nc', int(np.ceil(np.sqrt(nims))))  # number of columns
     nr = kwargs.get('nr', int(np.ceil(nims / nc)))  # number of rows
     bw = kwargs.get('bw', 0)  # border width
+    bv = kwargs.get('bv', 0)  # border value
     transpose = kwargs.get('transpose', False)
     transposeIms = kwargs.get('transposeIms', False)
 
@@ -64,16 +68,19 @@ def collage(images, **kwargs):
 
     # pad array so it matches the product nc * nr
     padding = nc * nr - nims
-    h, w, numChans = images[0].shape[:3]
-    ims = images + [np.zeros((h, w, numChans))] * padding
+    h = np.max([im.shape[0] for im in images])
+    w = np.max([im.shape[1] for im in images])
+    numChans = np.max([im.shape[2] for im in images])
+    ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in images]
+    ims += [np.zeros((h, w, numChans))] * padding
     coll = np.stack(ims, axis=3)
     coll = np.reshape(coll, (h, w, numChans, nc, nr))
     # 0  1  2   3   4
     # y, x, ch, co, ro
     if bw:
         # pad each patch by border if requested
-        coll = np.append(coll, np.zeros((bw,) + coll.shape[1: 5]), axis=0)
-        coll = np.append(coll, np.zeros((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
+        coll = np.append(coll, bv * np.ones((bw,) + coll.shape[1: 5]), axis=0)
+        coll = np.append(coll, bv * np.ones((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
     if transpose:
         nim0 = nr
         nim1 = nc

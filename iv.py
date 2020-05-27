@@ -74,7 +74,8 @@ class iv(QMainWindow):
         self.setWindowTitle('iv ' + timestamp)
         
         shell = get_ipython()
-        shell.magic('%matplotlib qt')
+        if not shell is None:
+            shell.magic('%matplotlib qt')
 
         # store list of input images
         if len(args) == 1 and isinstance(args[0], torch.Tensor):
@@ -125,8 +126,8 @@ class iv(QMainWindow):
         self.offset = 0.
         self.autoscalePrctile = 0.1
         self.autoscaleUsePrctiles = True
-        self.autoscaleOnChange = False
-        self.autoscalePerImg = False
+        self.autoscaleEnabled = True
+        self.autoscaleOnChange = True
         self.collageActive = False
         self.collageTranspose = False
         self.collageTransposeIms = False
@@ -142,7 +143,12 @@ class iv(QMainWindow):
         self.x_stop_at_orig = True
         self.y_stop_at_orig = True
         self.annotate = False
+        self.annotate_numbers = True
         self.font_size = 12
+        self.labels = kwargs.get('labels', None)
+        if not self.labels is None:
+            assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
+                                                         % (len(self.labels), len(self.images))
         
         self.crop_bounds()
         self.initUI()
@@ -151,7 +157,7 @@ class iv(QMainWindow):
         self.ax.set_yticks([])
         #plt.tight_layout()
         self.updateImage()
-        if self.autoscaleOnChange:
+        if self.autoscaleEnabled:
             self.autoscale()
         self.cur_xlims = self.ih.axes.axis()[0 : 2]
         self.cur_ylims = self.ih.axes.axis()[2 :]
@@ -228,15 +234,11 @@ class iv(QMainWindow):
         self.uiCBAutoscaleUsePrctiles.setCheckState(self.autoscaleUsePrctiles)
         self.uiCBAutoscaleUsePrctiles.setTristate(False)
         self.uiCBAutoscaleUsePrctiles.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUsePrctiles, state))
-        self.uiCBAutoscaleOnChange = QCheckBox('on change')
-        self.uiCBAutoscaleOnChange.setCheckState(self.autoscaleOnChange)
-        self.uiCBAutoscaleOnChange.setTristate(False)
-        self.uiCBAutoscaleOnChange.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleOnChange, state))
+        self.uiCBautoscaleEnabled = QCheckBox('globally / on change')
+        self.uiCBautoscaleEnabled.setCheckState(self.autoscaleEnabled + self.autoscaleOnChange)
+        self.uiCBautoscaleEnabled.setTristate(True)
+        self.uiCBautoscaleEnabled.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBautoscaleEnabled, state))
         if self.nims > 1:
-            self.uiCBAutoscalePerImg = QCheckBox('per image')
-            self.uiCBAutoscalePerImg.setCheckState(self.autoscalePerImg)
-            self.uiCBAutoscalePerImg.setTristate(False)
-            self.uiCBAutoscalePerImg.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscalePerImg, state))
             self.uiCBCollageActive = QCheckBox('enable')
             self.uiCBCollageActive.setCheckState(self.collageActive)
             self.uiCBCollageActive.setTristate(False)
@@ -273,6 +275,10 @@ class iv(QMainWindow):
         self.uiCBAnnotate.setCheckState(self.annotate)
         self.uiCBAnnotate.setTristate(False)
         self.uiCBAnnotate.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotate, state))
+        self.uiCBAnnotateNumbers = QCheckBox('enable')
+        self.uiCBAnnotateNumbers.setCheckState(self.annotate_numbers)
+        self.uiCBAnnotateNumbers.setTristate(False)
+        self.uiCBAnnotateNumbers.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotateNumbers, state))
         self.uiLEFontSize = QLineEdit(str(self.font_size))
         self.uiLEFontSize.setMinimumWidth(200)
         self.uiLEFontSize.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontSize))
@@ -286,9 +292,9 @@ class iv(QMainWindow):
         form.addRow(QLabel('offset:'), self.uiLEOffset)
         form.addRow(QLabel('autoScale:'), self.uiCBAutoscaleUsePrctiles)
         form.addRow(QLabel('percentile:'), self.uiLEAutoscalePrctile)
-        form.addRow(QLabel('autoScale:'), self.uiCBAutoscaleOnChange)
+        form.addRow(QLabel('autoScale:'), self.uiCBautoscaleEnabled)
+        #form.addRow(QLabel('autoScale:'), self.uiCBautoscaleOnChange)
         if self.nims > 1:
-            form.addRow(QLabel('autoScale:'), self.uiCBAutoscalePerImg)
             form.addRow(QLabel('collage:'), self.uiCBCollageActive)
             form.addRow(QLabel('collage:'), self.uiCBCollageTranspose)
             form.addRow(QLabel('collage:'), self.uiCBCollageTransposeIms)
@@ -299,6 +305,7 @@ class iv(QMainWindow):
         form.addRow(QLabel('crop:'), self.uiCBCrop)
         form.addRow(QLabel('crop global:'), self.uiCBCropGlobal)
         form.addRow(QLabel('annotate:'), self.uiCBAnnotate)
+        form.addRow(QLabel('annotate numbers:'), self.uiCBAnnotateNumbers)
         form.addRow(QLabel('font size:'), self.uiLEFontSize)
         form_bottom = QFormLayout()
         form_bottom.addRow(self.uiPBCopyClipboard)
@@ -351,16 +358,16 @@ class iv(QMainWindow):
         elif ui == self.uiLEAutoscalePrctile:
             self.autoscalePrctile = tmp
             self.autoscale()
-        elif ui == self.uiLECollageNr:
+        elif hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
             self.collage_nr = int(tmp)
             self.collage()
-        elif ui == self.uiLECollageNc:
+        elif hasattr(self, 'uiLECollageNc') and ui == self.uiLECollageNc:
             self.collage_nc = int(tmp)
             self.collage()
-        elif ui == self.uiLECollageBW:
+        elif hasattr(self, 'uiLECollageBW') and ui == self.uiLECollageBW:
             self.collage_border_width = int(tmp)
             self.collage()
-        elif ui == self.uiLECollageBV:
+        elif hasattr(self, 'uiLECollageBV') and ui == self.uiLECollageBV:
             self.collage_border_value = float(tmp)
             self.collage()
         elif ui == self.uiLEFontSize:
@@ -372,22 +379,20 @@ class iv(QMainWindow):
     def callbackCheckBox(self, ui, state):
         if ui == self.uiCBAutoscaleUsePrctiles:
             self.autoscaleUsePrctiles = bool(state)
-            if self.autoscaleOnChange:
+            if self.autoscaleEnabled:
                 self.autoscale()
-        elif ui == self.uiCBAutoscaleOnChange:
-            self.autoscaleOnChange = bool(state)
-            if self.autoscaleOnChange:
+        elif ui == self.uiCBautoscaleEnabled:
+            self.autoscaleEnabled = bool(state)
+            self.autoscaleOnChange = state == 2
+            if self.autoscaleEnabled:
                 self.autoscale()
-        elif ui == self.uiCBAutoscalePerImg:
-            self.autoscalePerImg = bool(state)
-            self.autoscale()
-        elif ui == self.uiCBCollageActive:
+        elif hasattr(self, 'uiCBCollageActive') and ui == self.uiCBCollageActive:
             self.collageActive = bool(state)
             self.updateImage()
-        elif ui == self.uiCBCollageTranspose:
+        elif hasattr(self, 'uiCBCollageTranspose') and ui == self.uiCBCollageTranspose:
             self.collageTranspose = bool(state)
             self.updateImage()
-        elif ui == self.uiCBCollageTransposeIms:
+        elif hasattr(self, 'uiCBCollageTransposeIms') and ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
             self.updateImage()
         elif ui == self.uiCBCrop:
@@ -399,6 +404,9 @@ class iv(QMainWindow):
             self.updateImage()
         elif ui == self.uiCBAnnotate:
             self.annotate = bool(state)
+            self.updateImage()
+        elif ui == self.uiCBAnnotateNumbers:
+            self.annotate_numbers = bool(state)
             self.updateImage()
             
     def callbackPushButton(self, ui):
@@ -468,7 +476,15 @@ class iv(QMainWindow):
             im = im[self.ymins[i] : self.ymaxs[i], self.xmins[i] : self.xmaxs[i], :]
         if self.annotate:
             from pytb.utils import annotate_image
-            im = annotate_image(im, str(i), font_size=self.font_size)
+            label = ''
+            if self.annotate_numbers:
+                label += str(i) + ' '
+            if not self.labels is None:
+                label += self.labels[i]
+            if im.shape[2] == 3:
+                im = annotate_image(im, label, font_size=self.font_size)
+            else:
+                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=1)
         return im
     
     def get_imgs(self):
@@ -485,14 +501,14 @@ class iv(QMainWindow):
     def autoscale(self):
         # autoscale between user-selected percentiles
         if self.autoscaleUsePrctiles:
-            if self.autoscalePerImg:
+            if self.autoscaleOnChange:
                 lower, upper = np.percentile(self.get_img(), (self.autoscalePrctile, 100 - self.autoscalePrctile))
             else:
                 limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile)) for image in self.get_imgs()]
                 lower = np.min([lims[0] for lims in limits])
                 upper= np.max([lims[1] for lims in limits])
         else:
-            if self.autoscalePerImg:
+            if self.autoscaleOnChange:
                 lower = np.min(self.get_img())
                 upper = np.max(self.get_img())
             else:
@@ -735,8 +751,8 @@ class iv(QMainWindow):
             return
         elif key == Qt.Key_C:
             # toggle on-change autoscale
-            self.autoscaleOnChange = not self.autoscaleOnChange
-            print('on-change autoscaling is %s' % ('on' if self.autoscaleOnChange else 'off'))
+            self.autoscaleEnabled = not self.autoscaleEnabled
+            print('on-change autoscaling is %s' % ('on' if self.autoscaleEnabled else 'off'))
         elif key == Qt.Key_G:
             self.gamma = 1.
         elif key == Qt.Key_L:
@@ -747,12 +763,12 @@ class iv(QMainWindow):
                 # toggle showing collage
                 self.collageActive = not self.collageActive
             # also disable per-image scaling limit computation
-            self.autoscalePerImg = not self.autoscalePerImg
+            self.autoscaleOnChange = not self.autoscaleOnChange
         elif key == Qt.Key_O:
             self.offset = 0.
         elif key == Qt.Key_P:
-            self.autoscalePerImg = not self.autoscalePerImg
-            print('per-image scaling is %s' % ('on' if self.autoscalePerImg else 'off'))
+            self.autoscaleOnChange = not self.autoscaleOnChange
+            print('per-image scaling is %s' % ('on' if self.autoscaleOnChange else 'off'))
             self.autoscale()
         elif key == Qt.Key_S:
             self.scale = 1.
@@ -775,14 +791,14 @@ class iv(QMainWindow):
             self.switch_to_single_image()
             self.imind = np.mod(self.imind - 1, self.nims)
             print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleOnChange:
+            if self.autoscaleEnabled:
                 self.autoscale()
                 return
         elif key == Qt.Key_Right:
             self.switch_to_single_image()
             self.imind = np.mod(self.imind + 1, self.nims)
             print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleOnChange:
+            if self.autoscaleEnabled:
                 self.autoscale()
                 return
         else:
@@ -825,7 +841,7 @@ class iv(QMainWindow):
             self.switch_to_single_image()
             self.imind = int(np.mod(self.imind - event.step, self.nims))
             print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleOnChange:
+            if self.autoscaleEnabled:
                 self.autoscale()
                 return
         self.updateImage()
