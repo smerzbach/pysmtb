@@ -125,7 +125,7 @@ def to_dict(matobj):
     for fn in matobj._fieldnames:
         val = matobj.__dict__[fn]
         if isinstance(val, spio.matlab.mio5_params.mat_struct):
-            output[fn] = toDict(val)
+            output[fn] = to_dict(val)
         else:
             output[fn] = val
     return output
