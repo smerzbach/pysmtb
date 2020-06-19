@@ -8,8 +8,10 @@ Created on Thu Oct 18 19:24:05 2018
 
 from datetime import datetime
 from functools import wraps
-import imageio
-from IPython import get_ipython
+try:
+    from IPython import get_ipython
+except:
+    pass
 import numpy as np
 import sys
 import traceback
@@ -36,7 +38,10 @@ from matplotlib.transforms import Bbox
 from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 
-import torch
+try:
+    from torch import Tensor
+except:
+    Tensor = type(None)
 
 from pytb.utils import pad
 
@@ -72,13 +77,16 @@ class iv(QMainWindow):
 
         timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
         self.setWindowTitle('iv ' + timestamp)
-        
-        shell = get_ipython()
-        if not shell is None:
-            shell.magic('%matplotlib qt')
+
+        try:
+            shell = get_ipython()
+            if not shell is None:
+                shell.magic('%matplotlib qt')
+        except:
+            pass
 
         # store list of input images
-        if len(args) == 1 and isinstance(args[0], torch.Tensor):
+        if len(args) == 1 and isinstance(args[0], Tensor):
             # handle torch.Tensor input
             if args[0].ndim <= 3:
                 self.images = [args[0].detach().cpu().numpy()]
@@ -105,7 +113,7 @@ class iv(QMainWindow):
             self.images = list(args)
         
         for imind in range(len(self.images)):
-            if isinstance(self.images[imind], torch.Tensor):
+            if isinstance(self.images[imind], Tensor):
                 self.images[imind] = self.images[imind].detach().cpu().numpy()
                 if self.images[imind].ndim == 4:
                     # probably a torch tensor with dimensions [batch, channels, y, x]
@@ -847,4 +855,5 @@ class iv(QMainWindow):
         self.updateImage()
     
     def save(self, ofname):
+        import imageio
         imageio.imwrite(ofname, np.array(self.ih.get_array()))
