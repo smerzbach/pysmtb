@@ -130,7 +130,8 @@ def to_dict(matobj):
             output[fn] = val
     return output
 
-def strparse(strings, pattern, numeric=False, *args):
+
+def strparse2(strings, pattern, numeric=False, *args):
     res = [re.match(pattern, string) for string in strings]
     matching = np.nonzero(np.array([not r is None for r in res]))
     res = np.array(res)[matching]
@@ -146,7 +147,13 @@ def strparse(strings, pattern, numeric=False, *args):
             res = resOut
         elif len(args) != 0:
             raise Exception('number of type specifiers must equal the number of matching groups in the pattern!')
+    return res, matching
+
+
+def strparse(strings, pattern, numeric=False, *args):
+    res, matching = strparse(strings, pattern, numeric, *args)
     return res
+
 
 def read_exr(fname, outputType=np.float16):
     import pyexr
