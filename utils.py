@@ -133,11 +133,10 @@ def to_dict(matobj):
 
 def strparse2(strings, pattern, numeric=False, *args):
     res = [re.match(pattern, string) for string in strings]
-    matching = np.nonzero(np.array([not r is None for r in res]))
+    matching = np.nonzero(np.array([not r is None for r in res]))[0]
     res = np.array(res)[matching]
     res = np.array([r.groups() for r in res])
-    if numeric:
-        print(len(args), args)
+    if len(matching) and numeric:
         if len(args) == 1:
             res = res.astype(args[0])
         elif len(args) == res.shape[1]:
@@ -151,7 +150,7 @@ def strparse2(strings, pattern, numeric=False, *args):
 
 
 def strparse(strings, pattern, numeric=False, *args):
-    res, matching = strparse(strings, pattern, numeric, *args)
+    res, matching = strparse2(strings, pattern, numeric, *args)
     return res
 
 
