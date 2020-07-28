@@ -160,3 +160,15 @@ def read_exr(fname, outputType=np.float16):
     channels = file.channel_map['all']
     pixels = file.get(group='all', precision=pyexr.FLOAT)
     return pixels, channels
+
+
+def clamp(arr, lower=0, upper=1):
+    if isinstance(arr, np.ndarray):
+        arr = arr.clip(lower, upper)
+    else:
+        import torch
+        if isinstance(arr, torch.Tensor):
+            arr = arr.clamp(lower, upper)
+        else:
+            raise Exception('not implemented for data type ' + str(type(arr)))
+    return arr
