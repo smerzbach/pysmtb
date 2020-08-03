@@ -10,6 +10,7 @@ import numpy as np
 import re
 import scipy.io as spio
 
+
 def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1., 1.]):
     from PIL import Image
     from PIL import ImageFont
@@ -28,6 +29,7 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1
     mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
     return np.atleast_3d((1 - mask)) * np.atleast_3d(image) + np.atleast_3d(mask) * np.array(font_color).reshape(1, 1, -1)
 
+
 def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
     height, width = image.shape[:2]
     pad_width = new_width - width
@@ -45,6 +47,7 @@ def pad(image, new_width, new_height, new_num_channels=None, value=0., center=Tr
         image = np.concatenate((image, value * np.ones(image.shape[:2] + (new_num_channels - image.shape[2]), dtype=image.dtype)), axis=2)
 
     return image
+
 
 def collage(images, **kwargs):
     if isinstance(images, np.ndarray):
@@ -111,6 +114,7 @@ def collage(images, **kwargs):
 
     return coll
 
+
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
     mat = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
@@ -118,6 +122,7 @@ def loadmat(filename):
         if isinstance(mat[key], spio.matlab.mio5_params.mat_struct):
             mat[key] = to_dict(mat[key])
     return mat
+
 
 def to_dict(matobj):
     """construct python dictionary from matobject"""
@@ -172,3 +177,47 @@ def clamp(arr, lower=0, upper=1):
         else:
             raise Exception('not implemented for data type ' + str(type(arr)))
     return arr
+
+
+def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1, ffmpeg='/usr/bin/ffmpeg'):
+    """Write a sequence of frames as mp4 video file by writing temporary images and converting them with ffmpeg.
+
+    Arguments:
+    frames -- list / array of 2D or 3D numpy arrays holding grayscale or RGB images
+    fname -- relative / absolute path to output mp4 file (including extension)
+    
+    Keyword arguments:
+    extension -- file extension of temporary images (default 'jpg')
+    cleanup -- set this to True to remove temporary images (default True)
+    fps -- frames per second of output video (default 25)
+    crf -- constant rate factor parameter to ffmpeg, scalar between 0 (lossless) and 51 (worst quality) (default 10)
+    scale -- tonemapping scale, used to brighten or darken images (default 1.0)
+    gamma -- tonemapping gamma, used to stretch / squeeze dark or bright areas (default 1.0)
+    ffmpeg -- path to ffmpeg executable (default /usr/bin/ffmpeg)
+    """
+    import os
+    from PIL import Image
+    import tempfile
+    from subprocess import run
+    tmp = tempfile.gettempdir()
+    tmp = tempfile.TemporaryDirectory().name
+    os.makedirs(tmp)
+
+    for fi in range(len(frames)):
+        frame = frames[fi]
+        if frame.shape[0] % 2 != 0:
+            frame = frame[1:, :, :]
+        if frame.shape[1] % 2 != 0:
+            frame = frame[:, 1:, :]
+        im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
+        print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+        im.save(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+
+    cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', os.path.join(tmp, 'frame_%%04d.%s' % extension), '-c:v',
+           'libx264', '-vf', 'fps=%d' % fps, '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
+    print(' '.join(cmd))
+    res = run(cmd)
+
+    if cleanup:
+        for fi in range(len(frames)):
+            os.remove(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
