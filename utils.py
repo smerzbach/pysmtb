@@ -11,7 +11,7 @@ import re
 import scipy.io as spio
 
 
-def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1., 1.]):
+def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1., 1.], stroke_color=[1/255, 1/255, 1/255], stroke_width=1):
     from PIL import Image
     from PIL import ImageFont
     from PIL import ImageDraw
@@ -19,15 +19,23 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1
     if font_path is None:
         font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
 
-    mask = Image.fromarray(np.zeros(image.shape, dtype=np.uint8))
+    font_color = tuple([int(c * 255) for c in font_color])
+    stroke_color = tuple([int(c * 255) for c in stroke_color])
+
+    image = np.atleast_3d(image)
+    mask = Image.fromarray(np.zeros(image.shape[:2] + (image.shape[2] + 1,), dtype=np.uint8))
     draw = ImageDraw.Draw(mask)
     font = ImageFont.truetype(font_path, font_size)
     if image.ndim == 3:
-        draw.text((0, 0), label, (255, 255, 255), font=font)
+        draw.text((0, 0), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
     else:
-        draw.text((0, 0), label, (255,), font=font)
+        draw.text((0, 0), text=label, fill=font_color + (255,), font=font, stroke_width=stroke_width, stroke_fill=stroke_color + (255,))
     mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
-    return np.atleast_3d((1 - mask)) * np.atleast_3d(image) + np.atleast_3d(mask) * np.array(font_color).reshape(1, 1, -1)
+    alpha = np.atleast_3d(mask[:,:,-1])
+    mask = np.atleast_3d(mask[:,:,:-1])
+
+    #out = Image.alpha_composite(base, txt)
+    return (1 - alpha) * image + alpha * mask  # * np.array(font_color).reshape(1, 1, -1)
 
 
 def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
