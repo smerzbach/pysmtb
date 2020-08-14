@@ -34,8 +34,7 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1
     alpha = np.atleast_3d(mask[:,:,-1])
     mask = np.atleast_3d(mask[:,:,:-1])
 
-    #out = Image.alpha_composite(base, txt)
-    return (1 - alpha) * image + alpha * mask  # * np.array(font_color).reshape(1, 1, -1)
+    return (1 - alpha) * image + alpha * mask
 
 
 def pad(image, new_width, new_height, new_num_channels=None, value=0., center=True):
