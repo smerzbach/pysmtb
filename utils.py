@@ -8,10 +8,9 @@ Created on Wed Jan 14 23:01:57 2020
 
 import numpy as np
 import re
-import scipy.io as spio
 
 
-def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1., 1.], stroke_color=[1/255, 1/255, 1/255], stroke_width=1):
+def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1):
     from PIL import Image
     from PIL import ImageFont
     from PIL import ImageDraw
@@ -19,10 +18,23 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1., 1
     if font_path is None:
         font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
 
+    image = np.atleast_3d(image)
+
+    try:
+        len(font_color)
+    except:
+        font_color = [font_color]
+
+    try:
+        len(stroke_color)
+    except:
+        stroke_color = [stroke_color]
+
+    font_color = font_color + [font_color[-1] for _ in range(image.shape[2] - len(font_color))]
+    stroke_color = stroke_color + [stroke_color[-1] for _ in range(image.shape[2] - len(stroke_color))]
     font_color = tuple([int(c * 255) for c in font_color])
     stroke_color = tuple([int(c * 255) for c in stroke_color])
 
-    image = np.atleast_3d(image)
     mask = Image.fromarray(np.zeros(image.shape[:2] + (image.shape[2] + 1,), dtype=np.uint8))
     draw = ImageDraw.Draw(mask)
     font = ImageFont.truetype(font_path, font_size)
@@ -51,7 +63,7 @@ def pad(image, new_width, new_height, new_num_channels=None, value=0., center=Tr
                             image,
                             value * np.ones((image.shape[0], margins1[1]) + image.shape[2:4], dtype=image.dtype)), axis=1)
     if not new_num_channels is None and image.shape[2] < new_num_channels:
-        image = np.concatenate((image, value * np.ones(image.shape[:2] + (new_num_channels - image.shape[2]), dtype=image.dtype)), axis=2)
+        image = np.concatenate((image, np.atleast_3d(value * np.ones(image.shape[:2] + (new_num_channels - image.shape[2],), dtype=image.dtype))), axis=2)
 
     return image
 
@@ -124,6 +136,7 @@ def collage(images, **kwargs):
 
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
+    import scipy.io as spio
     mat = spio.loadmat(filename, struct_as_record=False, squeeze_me=True)
     for key in mat:
         if isinstance(mat[key], spio.matlab.mio5_params.mat_struct):
@@ -133,6 +146,7 @@ def loadmat(filename):
 
 def to_dict(matobj):
     """construct python dictionary from matobject"""
+    import scipy.io as spio
     output = {}
     for fn in matobj._fieldnames:
         val = matobj.__dict__[fn]

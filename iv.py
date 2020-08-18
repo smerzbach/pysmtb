@@ -108,7 +108,13 @@ class iv(QMainWindow):
         
         elif len(args) == 1 and (isinstance(args[0], list) or isinstance(args[0], tuple)):
             self.images = list(args[0])
-        
+
+        elif isinstance(args[0], dict):
+            # images specified in dictionary -> use keys as labels
+            if not 'labels' in kwargs:
+                labels = list(args[0].keys())
+                kwargs['labels'] = labels
+                self.images = list(args[0].values())
         else:
             self.images = list(args)
         
@@ -487,12 +493,12 @@ class iv(QMainWindow):
             label = ''
             if self.annotate_numbers:
                 label += str(i) + ' '
-            if not self.labels is None:
+            if self.labels is not None:
                 label += self.labels[i]
             if im.shape[2] == 3:
                 im = annotate_image(im, label, font_size=self.font_size)
             else:
-                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=1)
+                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=1, stroke_color=0)
         return im
     
     def get_imgs(self):
