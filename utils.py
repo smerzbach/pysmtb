@@ -256,3 +256,14 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
 
     return prefix
 
+
+def blur_image(image, blur_size=49):
+    if blur_size <= 1:
+        return image.copy()
+    from scipy.ndimage import convolve
+    N = blur_size - 1
+    n = np.mgrid[0: N + 1] - N / 2
+    g = np.exp(-0.5 * (2.5 * n / (N / 2)) ** 2)
+    kernel = g[:, None] * g[None, :]
+    kernel = kernel / np.sum(kernel)
+    return convolve(np.atleast_3d(image), np.atleast_3d(kernel))
