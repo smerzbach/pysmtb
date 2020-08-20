@@ -200,11 +200,13 @@ def clamp(arr, lower=0, upper=1):
     return arr
 
 
-def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1, ffmpeg='/usr/bin/ffmpeg'):
+def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1,
+              ffmpeg='/usr/bin/ffmpeg', digit_format='%04d'):
     """Write a sequence of frames as mp4 video file by writing temporary images and converting them with ffmpeg.
 
     Arguments:
-    frames -- list / array of 2D or 3D numpy arrays holding grayscale or RGB images
+    frames -- list / array of 2D or 3D numpy arrays holding grayscale or RGB images, alternatively this can be a list
+              of filenames to images already written to disk; the expected filename format is prefix_%04d.extension
     fname -- relative / absolute path to output mp4 file (including extension)
     
     Keyword arguments:
@@ -215,6 +217,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     scale -- tonemapping scale, used to brighten or darken images (default 1.0)
     gamma -- tonemapping gamma, used to stretch / squeeze dark or bright areas (default 1.0)
     ffmpeg -- path to ffmpeg executable (default /usr/bin/ffmpeg)
+    digit_format -- numerical format of the running index in the filenames
     """
     import os
     from PIL import Image
@@ -224,21 +227,32 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     tmp = tempfile.TemporaryDirectory().name
     os.makedirs(tmp)
 
-    for fi in range(len(frames)):
-        frame = frames[fi]
-        if frame.shape[0] % 2 != 0:
-            frame = frame[1:, :, :]
-        if frame.shape[1] % 2 != 0:
-            frame = frame[:, 1:, :]
-        im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
-        print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
-        im.save(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+    if isinstance(frames[0], np.ndarray):
+        for fi in range(len(frames)):
+            frame = frames[fi]
+            if frame.shape[0] % 2 != 0:
+                frame = frame[1:, :, :]
+            if frame.shape[1] % 2 != 0:
+                frame = frame[:, 1:, :]
+            im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
+            print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+            im.save(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+        prefix = os.path.join(tmp, 'frame_')
+    else:
+        if not isinstance(frames[0], str):
+            raise Exception('frames should be list of np.ndarrays or filenames')
+        prefix = frames[0]
+        prefix = prefix[:prefix.rfind('_') + 1]
+    print(prefix)
 
-    cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', os.path.join(tmp, 'frame_%%04d.%s' % extension), '-c:v',
+    cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', prefix + digit_format + '.' + extension, '-c:v',
            'libx264', '-vf', 'fps=%d' % fps, '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
     print(' '.join(cmd))
     res = run(cmd)
 
     if cleanup:
         for fi in range(len(frames)):
-            os.remove(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+            os.remove(prefix + '_%04d.%s' % (fi, extension))
+
+    return prefix
+
