@@ -257,13 +257,34 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     return prefix
 
 
-def blur_image(image, blur_size=49):
+def blur_image(image, blur_size=49, use_torch=False):
     if blur_size <= 1:
         return image.copy()
-    from scipy.ndimage import convolve
+    image = np.atleast_3d(image.astype(np.float32))
+    if use_torch:
+        import torch
+        from torch.nn.functional import conv2d
+        def convolve(image, kernel):
+            dev = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+            kernel = kernel.astype(image.dtype)
+            with torch.no_grad():
+                h, w = kernel.shape[:2]
+                if h % 2 == 0:
+                    p = (h // 2 - 1, h - h // 2, w // 2 - 1, w - w // 2)
+                else:
+                    p = (h // 2, h - h // 2 - 1, w // 2, w - w // 2 - 1)
+                padding = torch.nn.ReflectionPad2d(p)
+                image = torch.tensor(image.transpose(2, 0, 1)[:, None])
+                image = padding(image)
+                result = conv2d(image.to(dev), torch.tensor(kernel.transpose(2, 0, 1))[None].to(dev))
+                result = result.cpu().numpy()[:, 0, :, :].transpose((1, 2, 0))
+            return result
+    else:
+        from scipy.ndimage import convolve
+
     N = blur_size - 1
     n = np.mgrid[0: N + 1] - N / 2
     g = np.exp(-0.5 * (2.5 * n / (N / 2)) ** 2)
     kernel = g[:, None] * g[None, :]
-    kernel = kernel / np.sum(kernel)
-    return convolve(np.atleast_3d(image), np.atleast_3d(kernel))
+    kernel = np.atleast_3d(kernel / np.sum(kernel))
+    return convolve(image, kernel)
