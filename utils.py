@@ -236,7 +236,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
                 frame = frame[:, 1:, :]
             im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
             print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
-            im.save(os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+            im.save(os.path.join(tmp, 'frame_' + (digit_format % fi) + '.' + extension))
         prefix = os.path.join(tmp, 'frame_')
     else:
         if not isinstance(frames[0], str):
@@ -252,7 +252,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
 
     if cleanup:
         for fi in range(len(frames)):
-            os.remove(prefix + '_%04d.%s' % (fi, extension))
+            os.remove(prefix + (digit_format % fi) + '.' + extension)
 
     return prefix
 
