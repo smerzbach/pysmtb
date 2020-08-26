@@ -13,15 +13,19 @@ try:
 except:
     pass
 import numpy as np
+import os
 import sys
 import traceback
 import time
 import types
+from warnings import warn
 
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, \
+    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget, QFileDialog
+from PyQt5.Qt import QImage
 
 import matplotlib
 try:
@@ -135,30 +139,31 @@ class iv(QMainWindow):
 
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
-        self.scale = 1.
-        self.gamma = 1.
-        self.offset = 0.
-        self.autoscalePrctile = 0.1
-        self.autoscaleUsePrctiles = True
-        self.autoscaleEnabled = True
-        self.autoscaleOnChange = True
-        self.collageActive = False
-        self.collageTranspose = False
-        self.collageTransposeIms = False
+        self.scale = kwargs.get('scale', 1.)
+        self.gamma = kwargs.get('gamma', 1.)
+        self.offset = kwargs.get('offset', 0.)
+        self.autoscalePrctile = kwargs.get('autoscalePrctile', 0.1)
+        self.autoscaleUsePrctiles = kwargs.get('autoscaleUsePrctiles', True)
+        self.autoscaleEnabled = kwargs.get('autoscale', True)
+        self.autoscaleOnChange = kwargs.get('autoscaleOnChange', True)
+        self.collageActive = kwargs.get('collage', False)
+        self.collageTranspose = kwargs.get('collageTranspose', False)
+        self.collageTransposeIms = kwargs.get('collageTransposeIms', False)
         self.collage_nc = int(np.ceil(np.sqrt(self.nims)))
         self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
-        self.collage_border_width = 0
-        self.collage_border_value = 0.
-        self.crop        = kwargs.get('crop', False)
+        self.collage_border_width = kwargs.get('collageBorderWidth', 0)
+        self.collage_border_value = kwargs.get('collageBorderValue', 0.)
+        self.crop = kwargs.get('crop', False)
         self.crop_global = kwargs.get('crop_global', True)
         self.zoom_factor = 1.1
         self.x_zoom = True
         self.y_zoom = True
         self.x_stop_at_orig = True
         self.y_stop_at_orig = True
-        self.annotate = False
-        self.annotate_numbers = True
-        self.font_size = 12
+        self.annotate = kwargs.get('annotate', False)
+        self.annotate_numbers = kwargs.get('annotate_numbers', True)
+        self.font_size = kwargs.get('font_size', 12)
+        self.font_color = kwargs.get('font_color', 1)
         self.labels = kwargs.get('labels', None)
         if not self.labels is None:
             assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
@@ -193,6 +198,8 @@ class iv(QMainWindow):
         #plt.show(block=True)
         #plt.pause(10)
         #plt.show(block=False)
+
+        self.ofname = '' # previous saved image path
         
         self.setWindowModality(QtCore.Qt.WindowModal)
         self.show()
@@ -226,6 +233,8 @@ class iv(QMainWindow):
         self.ax = self.fig.add_subplot(111)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
         self.ax.set_anchor('NW')
+        self.ax.set_clip_on(False)
+        self.ax.set_axis_off()
         try:
             self.ax.get_yaxis().set_inverted(True)
         except Exception:
@@ -296,8 +305,19 @@ class iv(QMainWindow):
         self.uiLEFontSize = QLineEdit(str(self.font_size))
         self.uiLEFontSize.setMinimumWidth(200)
         self.uiLEFontSize.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontSize))
+        self.uiLEFontColor = QLineEdit(str(self.font_color))
+        self.uiLEFontColor.setMinimumWidth(200)
+        self.uiLEFontColor.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontColor))
         self.uiPBCopyClipboard = QPushButton('&copy')
         self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
+        self.uiPBCopyClipboardZoomed = QPushButton('copy &zoomed')
+        self.uiPBCopyClipboardZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboardZoomed))
+        self.uiPBSave = QPushButton('&save')
+        self.uiPBSave.clicked.connect(lambda: self.callbackPushButton(self.uiPBSave))
+        self.uiPBSaveZoomed = QPushButton('sa&ve zoomed')
+        self.uiPBSaveZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveZoomed))
+        self.uiPBSaveCanvas = QPushButton('s&ave canvas')
+        self.uiPBSaveCanvas.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveCanvas))
         
         form = QFormLayout()
         form.addRow(QLabel('modifiers:'), self.uiLabelModifiers)
@@ -321,12 +341,20 @@ class iv(QMainWindow):
         form.addRow(QLabel('annotate:'), self.uiCBAnnotate)
         form.addRow(QLabel('annotate numbers:'), self.uiCBAnnotateNumbers)
         form.addRow(QLabel('font size:'), self.uiLEFontSize)
-        form_bottom = QFormLayout()
-        form_bottom.addRow(self.uiPBCopyClipboard)
+        form.addRow(QLabel('font value:'), self.uiLEFontColor)
+        form_bottom = QHBoxLayout()
+        form_bottom.addWidget(self.uiPBCopyClipboard)
+        form_bottom.addWidget(self.uiPBCopyClipboardZoomed)
+        form_bottom2 = QHBoxLayout()
+        form_bottom2.addWidget(self.uiPBSave)
+        form_bottom2.addWidget(self.uiPBSaveZoomed)
+        form_bottom2.addWidget(self.uiPBSaveCanvas)
+
         vbox = QVBoxLayout()
         vbox.addLayout(form)
         vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
         vbox.addLayout(form_bottom)
+        vbox.addLayout(form_bottom2)
         
         hbox = QHBoxLayout()
         hbox.addWidget(self.canvas)
@@ -387,7 +415,9 @@ class iv(QMainWindow):
         elif ui == self.uiLEFontSize:
             self.font_size = int(tmp)
             self.updateImage()
-
+        elif ui == self.uiLEFontColor:
+            self.font_color = tmp
+            self.updateImage()
 
     #@MyPyQtSlot("bool")
     def callbackCheckBox(self, ui, state):
@@ -426,6 +456,14 @@ class iv(QMainWindow):
     def callbackPushButton(self, ui):
         if ui == self.uiPBCopyClipboard:
             self.copy_to_clipboard()
+        elif ui == self.uiPBCopyClipboardZoomed:
+            self.copy_to_clipboard_zoomed()
+        elif ui == self.uiPBSave:
+            self.save(zoomed=False)
+        elif ui == self.uiPBSaveZoomed:
+            self.save(zoomed=True)
+        elif ui == self.uiPBSaveCanvas:
+            self.save(canvas=True)
     
     '''
     @MyPyQtSlot()
@@ -482,12 +520,24 @@ class iv(QMainWindow):
         print('left mouse dragged:   pan image')
         print('')
     
-    def get_img(self, i=None):
+    def get_img(self, i=None, tonemap=False, decorate=False):
         if i is None:
             i = self.imind
         im = self.images[i]
         if self.crop:
             im = im[self.ymins[i] : self.ymaxs[i], self.xmins[i] : self.xmaxs[i], :]
+        if tonemap:
+            im = self.tonemap(im)
+        if decorate and self.annotate:
+            im = self.decorate(im=im, i=i)
+        return im
+    
+    def get_imgs(self, tonemap=False, decorate=False):
+        return [self.get_img(ind, tonemap=tonemap, decorate=decorate) for ind in range(len(self.images))]
+
+    def decorate(self, im, i=None, label=''):
+        if i is None:
+            i = self.imind
         if self.annotate:
             from pytb.utils import annotate_image
             label = ''
@@ -496,38 +546,30 @@ class iv(QMainWindow):
             if self.labels is not None:
                 label += self.labels[i]
             if im.shape[2] == 3:
-                im = annotate_image(im, label, font_size=self.font_size)
+                im = annotate_image(im, label, font_size=self.font_size, font_color=self.font_color)
             else:
-                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=1, stroke_color=0)
+                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=self.font_color, stroke_color=np.clip(1.-self.font_color, 0, 1))
         return im
-    
-    def get_imgs(self):
-        return [self.get_img(ind) for ind in range(len(self.images))]
-    
-    def copy_to_clipboard(self):
-        from PyQt5.Qt import QImage
-        im = (255 * self.ih.get_array()).astype(np.uint8)
-        h, w, nc = im.shape[:3]
-        im = QImage(im.tobytes(), w, h, nc * w, QImage.Format_RGB888)
-        c = QApplication.clipboard()
-        c.setImage(im)
     
     def autoscale(self):
         # autoscale between user-selected percentiles
         if self.autoscaleUsePrctiles:
             if self.autoscaleOnChange:
-                lower, upper = np.percentile(self.get_img(), (self.autoscalePrctile, 100 - self.autoscalePrctile))
+                lower, upper = np.percentile(self.get_img(decorate=False), (self.autoscalePrctile, 100 - self.autoscalePrctile))
             else:
-                limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile)) for image in self.get_imgs()]
+                limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile))
+                          for image in self.get_imgs(tonemap=False, decorate=False)]
                 lower = np.min([lims[0] for lims in limits])
                 upper= np.max([lims[1] for lims in limits])
         else:
             if self.autoscaleOnChange:
-                lower = np.min(self.get_img())
-                upper = np.max(self.get_img())
+                im = self.get_img(tonemap=False, decorate=False)
+                lower = np.min(im)
+                upper = np.max(im)
             else:
-                lower = np.min([np.min(image) for image in self.get_imgs()])
-                upper = np.max([np.max(image) for image in self.get_imgs()])
+                ims = self.get_imgs(tonemap=False, decorate=False)
+                lower = np.min([np.min(image) for image in ims])
+                upper = np.max([np.max(image) for image in ims])
         self.setOffset(lower, False)
         self.setScale(1. / (upper - lower), True)
 
@@ -553,7 +595,7 @@ class iv(QMainWindow):
         
         # pad array so it matches the product nc * nr
         padding = nc * nr - self.nims
-        ims = self.get_imgs()
+        ims = self.get_imgs(tonemap=True, decorate=True)
         h = np.max([im.shape[0] for im in ims])
         w = np.max([im.shape[1] for im in ims])
         numChans = np.max([im.shape[2] for im in ims])
@@ -597,7 +639,7 @@ class iv(QMainWindow):
         
         #self.ih.set_data(self.tonemap(coll))
         self.ax.clear()
-        self.ih = self.ax.imshow(self.tonemap(coll), origin='upper')
+        self.ih = self.ax.imshow(coll, origin='upper')
         
         height, width = self.ih.get_size()
         lims = (-0.5, width - 0.5, -0.5, height - 0.5)
@@ -673,7 +715,7 @@ class iv(QMainWindow):
         elif im.shape[2] != 3:
             # project to RGB
             raise Exception('spectral to RGB conversion not implemented')
-        return np.power(np.maximum(0., np.minimum(1., (im - self.offset) * self.scale)), 1. / self.gamma)
+        return np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / self.gamma)
         
     def updateImage(self):
         if self.collageActive:
@@ -684,13 +726,13 @@ class iv(QMainWindow):
                 self.uiCBCollageActive.setChecked(False)
                 self.uiCBCollageActive.blockSignals(False)
             height, width = self.ih.get_size()
-            im = self.get_img()
+            im = self.get_img(tonemap=True, decorate=True)
             if height != im.shape[0] or width != im.shape[1]:
                 # image size changed, create new axes
                 self.ax.clear()
-                self.ih = self.ax.imshow(self.tonemap(im))
+                self.ih = self.ax.imshow(im)
             else:
-                self.ih.set_data(self.tonemap(im))
+                self.ih.set_data(im)
             height, width = self.ih.get_size()
             lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
@@ -859,7 +901,59 @@ class iv(QMainWindow):
                 self.autoscale()
                 return
         self.updateImage()
-    
-    def save(self, ofname):
-        import imageio
-        imageio.imwrite(ofname, np.array(self.ih.get_array()))
+
+    def copy_to_clipboard(self):
+        im = (255 * self.ih.get_array()).astype(np.uint8)
+        h, w, nc = im.shape[:3]
+        im = QImage(im.tobytes(), w, h, nc * w, QImage.Format_RGB888)
+        c = QApplication.clipboard()
+        c.setImage(im)
+
+    def copy_to_clipboard_zoomed(self):
+        extent = self.ax.get_window_extent()
+        width_axes = extent.width
+        height_axes = extent.height
+
+        im = QImage(self.canvas.grab())
+        im = im.copy(0, 0, int(width_axes), int(height_axes))
+        c = QApplication.clipboard()
+        c.setImage(im)
+
+    def save(self, ofname=None, zoomed=False, canvas=True):
+        try:
+            if ofname is None:
+                dialog = QFileDialog()
+                ofname = dialog.getSaveFileName(parent=self,
+                                                caption='file save path',
+                                                directory=os.path.split(self.ofname)[0])[0]
+            if ofname is None or not len(ofname):
+                return
+            self.ofname = ofname
+            im = self.get_img()
+            if zoomed:
+                h, w = im.shape[:2]
+                lims = self.ax.axis()
+                x0 = np.max([0, int(lims[0] + 0.5)])
+                x1 = np.min([w, int(lims[1] + 0.5)])
+                y0 = np.max([0, int(lims[3] + 0.5)])
+                y1 = np.min([h, int(lims[2] + 0.5)])
+                image = im[y0 : y1, x0 : x1, :]
+            elif canvas:
+                from pytb.utils import qimage_to_np
+                im = QImage(self.canvas.grab())
+                #im = im.convertToFormat(QImage.Format_RGB888)
+                image = qimage_to_np(im)
+
+                image = image[:, :, -2::-1]
+
+                # get only image content, not the white stuff from the canvas
+                extent = self.ax.get_window_extent()
+                width_axes = extent.width
+                height_axes = extent.height
+                image = image[: int(height_axes), : int(width_axes), :]
+            else:
+                image = np.array(self.ih.get_array())
+            import imageio
+            imageio.imwrite(ofname, image)
+        except Exception as e:
+            warn(str(e))
