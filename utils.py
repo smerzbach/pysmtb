@@ -96,7 +96,7 @@ def collage(images, **kwargs):
     ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in images]
     ims += [np.zeros((h, w, numChans))] * padding
     coll = np.stack(ims, axis=3)
-    coll = np.reshape(coll, (h, w, numChans, nc, nr))
+    coll = np.reshape(coll, (h, w, numChans, nr, nc))
     # 0  1  2   3   4
     # y, x, ch, co, ro
     if bw:
@@ -104,8 +104,8 @@ def collage(images, **kwargs):
         coll = np.append(coll, bv * np.ones((bw,) + coll.shape[1: 5]), axis=0)
         coll = np.append(coll, bv * np.ones((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
     if transpose:
-        nim0 = nr
-        nim1 = nc
+        nim0 = nc
+        nim1 = nr
         if transposeIms:
             dim0 = w
             dim1 = h
@@ -117,8 +117,8 @@ def collage(images, **kwargs):
             #                          nr h  nc w  ch
             coll = np.transpose(coll, (4, 0, 3, 1, 2))
     else:
-        nim0 = nc
-        nim1 = nr
+        nim0 = nr
+        nim1 = nc
         if transposeIms:
             dim0 = w
             dim1 = h

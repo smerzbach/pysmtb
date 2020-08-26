@@ -602,16 +602,16 @@ class iv(QMainWindow):
         ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in ims]
         ims += [np.zeros((h, w, numChans))] * padding
         coll = np.stack(ims, axis=3)
-        coll = np.reshape(coll, (h, w, numChans, nc, nr))
+        coll = np.reshape(coll, (h, w, numChans, nr, nc))
         # 0  1  2   3   4
-        # y, x, ch, co, ro
+        # y, x, ch, ro, co
         if self.collage_border_width:
             # pad each patch by border if requested
             coll = np.append(coll, self.collage_border_value * np.ones((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
             coll = np.append(coll, self.collage_border_value * np.ones((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
         if self.collageTranspose:
-            nim0 = nr
-            nim1 = nc
+            nim0 = nc
+            nim1 = nr
             if self.collageTransposeIms:
                 dim0 = w
                 dim1 = h
@@ -623,8 +623,8 @@ class iv(QMainWindow):
                 #                          nr h  nc w  ch
                 coll = np.transpose(coll, (4, 0, 3, 1, 2))
         else:
-            nim0 = nc
-            nim1 = nr
+            nim0 = nr
+            nim1 = nc
             if self.collageTransposeIms:
                 dim0 = w
                 dim1 = h
