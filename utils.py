@@ -38,10 +38,11 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], 
     mask = Image.fromarray(np.zeros(image.shape[:2] + (image.shape[2] + 1,), dtype=np.uint8))
     draw = ImageDraw.Draw(mask)
     font = ImageFont.truetype(font_path, font_size)
+
     if image.ndim == 3:
         draw.text((0, 0), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
     else:
-        draw.text((0, 0), text=label, fill=font_color + (255,), font=font, stroke_width=stroke_width, stroke_fill=stroke_color + (255,))
+        draw.text((0, 0), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
     mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
     alpha = np.atleast_3d(mask[:,:,-1])
     mask = np.atleast_3d(mask[:,:,:-1])
