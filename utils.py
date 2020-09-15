@@ -258,7 +258,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     return prefix
 
 
-def blur_image(image, blur_size=49, use_torch=False):
+def blur_image(image, blur_size=49, use_torch=False, filter_type='gauss'):
     if blur_size <= 1:
         return image.copy()
     image = np.atleast_3d(image.astype(np.float32))
@@ -283,9 +283,20 @@ def blur_image(image, blur_size=49, use_torch=False):
     else:
         from scipy.ndimage import convolve
 
-    N = blur_size - 1
-    n = np.mgrid[0: N + 1] - N / 2
-    g = np.exp(-0.5 * (2.5 * n / (N / 2)) ** 2)
-    kernel = g[:, None] * g[None, :]
+    if filter_type == 'pyramid':
+        N = blur_size // 2
+        n = np.linspace(0, 1, N)
+        g = np.r_[n[:-1], n[::-1]]
+        kernel = g[:, None] * g[None, :]
+    elif filter_type == 'triangle':
+        N = blur_size // 2
+        ys, xs = np.mgrid[-N : N + 1, -N : N + 1]
+        kernel = np.maximum(np.abs(ys), np.abs(xs))
+        kernel = N - kernel
+    elif filter_type == 'gauss':
+        N = blur_size - 1
+        n = np.mgrid[0: N + 1] - N / 2
+        g = np.exp(-0.5 * (2.5 * n / (N / 2)) ** 2)
+        kernel = g[:, None] * g[None, :]
     kernel = np.atleast_3d(kernel / np.sum(kernel))
     return convolve(image, kernel)
