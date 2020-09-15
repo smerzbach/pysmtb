@@ -258,7 +258,7 @@ class iv(QMainWindow):
         self.uiCBAutoscaleUsePrctiles.setTristate(False)
         self.uiCBAutoscaleUsePrctiles.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUsePrctiles, state))
         self.uiCBautoscaleEnabled = QCheckBox('globally / on change')
-        self.uiCBautoscaleEnabled.setCheckState(self.autoscaleEnabled + self.autoscaleOnChange)
+        self.uiCBautoscaleEnabled.setCheckState(2 if self.autoscaleEnabled else 0)
         self.uiCBautoscaleEnabled.setTristate(True)
         self.uiCBautoscaleEnabled.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBautoscaleEnabled, state))
         if self.nims > 1:
