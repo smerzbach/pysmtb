@@ -235,6 +235,8 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
                 frame = frame[1:, :, :]
             if frame.shape[1] % 2 != 0:
                 frame = frame[:, 1:, :]
+            if frame.ndim == 3 and frame.shape[2] == 1:
+                frame = frame[:, :, 0]
             im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
             print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
             im.save(os.path.join(tmp, 'frame_' + (digit_format % fi) + '.' + extension))
