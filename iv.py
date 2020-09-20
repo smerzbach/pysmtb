@@ -705,6 +705,28 @@ class iv(QMainWindow):
             self.fig.canvas.draw()
         return
 
+    def overlay_pixel_values(self):
+        kids = self.ax.get_children()
+        for kid in kids:
+            if isinstance(kid, matplotlib.text.Text):
+                kid.set_visible(False)
+        lims = self.ih.axes.axis()
+        inds = (np.array(lims) + 0.5).astype(np.int32)
+        im = self.ih.get_array()
+        im = im[inds[3]: inds[2], inds[0]: inds[1], :]
+        xs = np.r_[inds[0]: inds[1]]
+        ys = np.r_[inds[3]: inds[2]]
+
+        for xi, x0 in enumerate(xs):
+            for yi, y0 in enumerate(ys):
+                pixel = im[yi, xi, :]
+                color = (pixel + 0.5) % 1.
+                if im.ndim == 3 and im.shape[2] == 3:
+                    th = self.ax.text(x0, y0 + 1.0, '% 6.3f\n% 6.3f\n% 6.3f\n' % tuple(pixel), fontsize=10, color=color)
+                else:
+                    th = self.ax.text(x0, y0 + 1.0, '% 6.3f' % im[0, 0], fontsize=10, color=color)
+        self.fig.canvas.draw()
+
     def tonemap(self, im):
         if isinstance(im, np.matrix):
             im = np.array(im)
