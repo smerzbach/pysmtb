@@ -79,8 +79,8 @@ class iv(QMainWindow):
             app = QApplication([''])
         QMainWindow.__init__(self, parent=None)
 
-        timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
-        self.setWindowTitle('iv ' + timestamp)
+        self.timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+        self.setWindowTitle('iv ' + self.timestamp)
 
         try:
             shell = get_ipython()
@@ -653,7 +653,7 @@ class iv(QMainWindow):
     def switch_to_single_image(self):
         if self.collageActive:
             self.ax.clear()
-            self.ih = self.ax.imshow(np.zeros(self.get_img().shape[:3]), origin='upper')
+            self.ih = self.ax.imshow(np.zeros(self.get_img(tonemap=True).shape[:3]), origin='upper')
         self.collageActive = False
         
     def reset_zoom(self):
@@ -668,7 +668,7 @@ class iv(QMainWindow):
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
-        lims = self.ih.axes.axis();
+        lims = self.ih.axes.axis()
         xlim = lims[0 : 2]
         ylim = lims[2 : ]
         
@@ -704,14 +704,14 @@ class iv(QMainWindow):
             self.ax.set_position(Bbox([[0, 0], [1, 1]]))
             self.fig.canvas.draw()
         return
-        
+
     def tonemap(self, im):
         if isinstance(im, np.matrix):
             im = np.array(im)
         if im.shape[2] == 1:
             im = np.repeat(im, 3, axis=2)
         elif im.shape[2] == 2:
-            im = np.concatenate((im, np.zeros((im.shape[0], im.shape[1], 2), dtype=im.dtype)), axis=2)
+            im = np.concatenate((im, np.zeros((im.shape[0], im.shape[1], 1), dtype=im.dtype)), axis=2)
         elif im.shape[2] != 3:
             # project to RGB
             raise Exception('spectral to RGB conversion not implemented')
@@ -720,6 +720,8 @@ class iv(QMainWindow):
     def updateImage(self):
         if self.collageActive:
             self.collage()
+            self.setWindowTitle('iv ' + self.timestamp + ' %d x %d collage (#ims: %d)'
+                                % (self.collage_nr, self.collage_nc, self.nims))
         else:
             if self.nims > 1:
                 self.uiCBCollageActive.blockSignals(True)
@@ -733,14 +735,16 @@ class iv(QMainWindow):
                 self.ih = self.ax.imshow(im)
             else:
                 self.ih.set_data(im)
-            height, width = self.ih.get_size()
-            lims = (-0.5, width - 0.5, -0.5, height - 0.5)
-            self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
+            # TODO: add "keep axis" checkbox that disables the following on chaning images so that zoom & pan can be sustained
+            #height, width = self.ih.get_size()
+            #lims = (-0.5, width - 0.5, -0.5, height - 0.5)
+            #self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
             try:
                 self.ax.get_yaxis().set_inverted(True)
             except Exception:
                 self.ax.invert_yaxis()
             self.fig.canvas.draw()
+            self.setWindowTitle('iv ' + self.timestamp + ' %d / %d' % (self.imind + 1, self.nims))
     
     def setScale(self, scale, update=True):
         self.scale = scale
