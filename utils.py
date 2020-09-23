@@ -10,7 +10,7 @@ import numpy as np
 import re
 
 
-def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1):
+def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1, x=0, y=0):
     from PIL import Image
     from PIL import ImageFont
     from PIL import ImageDraw
@@ -40,9 +40,9 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], 
     font = ImageFont.truetype(font_path, font_size)
 
     if image.ndim == 3:
-        draw.text((0, 0), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
+        draw.text((x, y), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
     else:
-        draw.text((0, 0), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
+        draw.text((x, y), text=label, fill=tuple(font_color) + (255,), font=font, stroke_width=stroke_width, stroke_fill=tuple(stroke_color) + (255,))
     mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
     alpha = np.atleast_3d(mask[:,:,-1])
     mask = np.atleast_3d(mask[:,:,:-1])
