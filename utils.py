@@ -230,7 +230,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
 
     if isinstance(frames[0], np.ndarray):
         for fi in range(len(frames)):
-            frame = frames[fi]
+            frame = np.atleast_3d(frames[fi])
             if frame.shape[0] % 2 != 0:
                 frame = frame[1:, :, :]
             if frame.shape[1] % 2 != 0:
