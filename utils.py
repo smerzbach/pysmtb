@@ -78,8 +78,12 @@ def collage(images, **kwargs):
 
     nims = len(images)
 
-    nc = kwargs.get('nc', int(np.ceil(np.sqrt(nims))))  # number of columns
-    nr = kwargs.get('nr', int(np.ceil(nims / nc)))  # number of rows
+    nc = kwargs.get('nc', None)  # number of columns
+    nr = kwargs.get('nr', None)  # number of rows
+    if nc is None:
+        nc = int(np.ceil(np.sqrt(nims)))
+    if nr is None:
+        nr = int(np.ceil(nims / nc))
     bw = kwargs.get('bw', 0)  # border width
     bv = kwargs.get('bv', 0)  # border value
     transpose = kwargs.get('transpose', False)
@@ -249,7 +253,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     print(prefix)
 
     cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', prefix + digit_format + '.' + extension, '-c:v',
-           'libx264', '-vf', 'fps=%d' % fps, '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
+           'libx264', '-vf', 'fps=%d' % fps, '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
     print(' '.join(cmd))
     res = run(cmd)
 
