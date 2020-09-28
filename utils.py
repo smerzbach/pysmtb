@@ -206,7 +206,7 @@ def clamp(arr, lower=0, upper=1):
 
 
 def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1,
-              ffmpeg='/usr/bin/ffmpeg', digit_format='%04d'):
+              ffmpeg='/usr/bin/ffmpeg', digit_format='%04d', quality=95):
     """Write a sequence of frames as mp4 video file by writing temporary images and converting them with ffmpeg.
 
     Arguments:
@@ -243,7 +243,10 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
                 frame = frame[:, :, 0]
             im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
             print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
-            im.save(os.path.join(tmp, 'frame_' + (digit_format % fi) + '.' + extension))
+            kwargs = dict()
+            if extension.lower() == 'jpg':
+                kwargs['quality'] = quality
+            im.save(os.path.join(tmp, 'frame_' + (digit_format % fi) + '.' + extension), **kwargs)
         prefix = os.path.join(tmp, 'frame_')
     else:
         if not isinstance(frames[0], str):
