@@ -139,6 +139,27 @@ def collage(images, **kwargs):
     return coll
 
 
+def crop_bounds(images, apply=True, crop_global=True, background=0):
+    # pre-compute cropping bounds (tight bounding box around non-background colored pixels)
+    if not isinstance(images, list):
+        images = [images]
+    nzs = [np.where(np.sum(np.atleast_3d(im) != background, axis=2) > 0) for im in images]
+    xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
+    xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
+    ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
+    ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
+    if crop_global:
+        # fix cropping boundaries for all images
+        xmins = [np.min(xmins) for _ in xmins]
+        xmaxs = [np.max(xmaxs) for _ in xmaxs]
+        ymins = [np.min(ymins) for _ in ymins]
+        ymaxs = [np.max(ymaxs) for _ in ymaxs]
+
+    if apply:
+        images = [np.atleast_3d(images[i])[ymins[i]: ymaxs[i], xmins[i]: xmaxs[i], :] for i in range(len(images))]
+    return dict(images=images, xmins=xmins, xmaxs=xmaxs, ymins=ymins, ymaxs=ymaxs)
+
+
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
     import scipy.io as spio
