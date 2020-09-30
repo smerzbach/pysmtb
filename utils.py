@@ -206,7 +206,7 @@ def clamp(arr, lower=0, upper=1):
 
 
 def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1,
-              ffmpeg='/usr/bin/ffmpeg', digit_format='%04d', quality=95):
+              ffmpeg='/usr/bin/ffmpeg', digit_format='%04d', quality=95, verbosity=1):
     """Write a sequence of frames as mp4 video file by writing temporary images and converting them with ffmpeg.
 
     Arguments:
@@ -227,8 +227,7 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
     import os
     from PIL import Image
     import tempfile
-    from subprocess import run
-    tmp = tempfile.gettempdir()
+    import subprocess
     tmp = tempfile.TemporaryDirectory().name
     os.makedirs(tmp)
 
@@ -242,7 +241,8 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
             if frame.ndim == 3 and frame.shape[2] == 1:
                 frame = frame[:, :, 0]
             im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
-            print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
+            if verbosity > 1:
+                print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
             kwargs = dict()
             if extension.lower() == 'jpg':
                 kwargs['quality'] = quality
@@ -253,12 +253,13 @@ def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scal
             raise Exception('frames should be list of np.ndarrays or filenames')
         prefix = frames[0]
         prefix = prefix[:prefix.rfind('_') + 1]
-    print(prefix)
 
     cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', prefix + digit_format + '.' + extension, '-c:v',
            'libx264', '-vf', 'fps=%d' % fps, '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
-    print(' '.join(cmd))
-    res = run(cmd)
+    if verbosity > 0:
+        print(' '.join(cmd))
+    stdout = subprocess.STDOUT if verbosity > 1 else subprocess.DEVNULL
+    res = subprocess.run(cmd, stdout=stdout, stderr=subprocess.STDOUT)
 
     if cleanup:
         for fi in range(len(frames)):
