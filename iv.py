@@ -47,7 +47,7 @@ try:
 except:
     Tensor = type(None)
 
-from pytb.utils import pad
+from pytb.utils import crop_bounds, pad
 
 '''
 def MyPyQtSlot(*args):
@@ -155,6 +155,7 @@ class iv(QMainWindow):
         self.collage_border_value = kwargs.get('collageBorderValue', 0.)
         self.crop = kwargs.get('crop', False)
         self.crop_global = kwargs.get('crop_global', True)
+        self.crop_background = kwargs.get('crop_background', 0)
         self.zoom_factor = 1.1
         self.x_zoom = True
         self.y_zoom = True
@@ -206,18 +207,11 @@ class iv(QMainWindow):
 
     def crop_bounds(self):
         # pre-compute cropping bounds (tight bounding box around non-zero pixels)
-        nzs = [np.where(np.sum(im, axis=2) > 0) for im in self.images]
-        self.xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
-        self.xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in
-                      zip(nzs, self.images)]  # +1 to allow easier indexing
-        self.ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
-        self.ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in
-                      zip(nzs, self.images)]  # +1 to allow easier indexing
-        if self.crop_global:
-            self.xmins = [np.min(self.xmins) for _ in self.xmins]
-            self.xmaxs = [np.max(self.xmaxs) for _ in self.xmaxs]
-            self.ymins = [np.min(self.ymins) for _ in self.ymins]
-            self.ymaxs = [np.max(self.ymaxs) for _ in self.ymaxs]
+        res = crop_bounds(self.images, apply=False, crop_global=self.crop_global, background=self.crop_background)
+        self.xmins = res['xmins']
+        self.xmaxs = res['xmaxs']
+        self.ymins = res['ymins']
+        self.ymaxs = res['ymaxs']
 
     def initUI(self):
         #self.fig = plt.figure(figsize = (10, 10))
@@ -294,6 +288,9 @@ class iv(QMainWindow):
         self.uiCBCropGlobal.setCheckState(self.crop_global)
         self.uiCBCropGlobal.setTristate(False)
         self.uiCBCropGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCropGlobal, state))
+        self.uiLECropBackground = QLineEdit(str(self.crop_background))
+        self.uiLECropBackground.setMinimumWidth(200)
+        self.uiLECropBackground.editingFinished.connect(lambda state: self.callbackLineEdit(self.uiLECropBackground))
         self.uiCBAnnotate = QCheckBox('enable')
         self.uiCBAnnotate.setCheckState(self.annotate)
         self.uiCBAnnotate.setTristate(False)
@@ -338,6 +335,7 @@ class iv(QMainWindow):
             form.addRow(QLabel('collage #BV:'), self.uiLECollageBV)
         form.addRow(QLabel('crop:'), self.uiCBCrop)
         form.addRow(QLabel('crop global:'), self.uiCBCropGlobal)
+        form.addRow(QLabel('crop bgrnd:'), self.uiLECropBackground)
         form.addRow(QLabel('annotate:'), self.uiCBAnnotate)
         form.addRow(QLabel('annotate numbers:'), self.uiCBAnnotateNumbers)
         form.addRow(QLabel('font size:'), self.uiLEFontSize)
@@ -417,6 +415,10 @@ class iv(QMainWindow):
             self.updateImage()
         elif ui == self.uiLEFontColor:
             self.font_color = tmp
+            self.updateImage()
+        elif ui == self.uiLECropBackground:
+            self.crop_background = tmp
+            self.crop_bounds()
             self.updateImage()
 
     #@MyPyQtSlot("bool")
