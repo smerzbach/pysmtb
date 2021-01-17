@@ -6,7 +6,7 @@ Created on Thu Oct 18 22:28:01 2018
 """
 
 import numpy as np
-import pytb.iv
+import pysmtb.iv
 import importlib
 import matplotlib
 import opensimplex
@@ -25,4 +25,4 @@ if __name__ == "__main__":
     iv = importlib.reload(iv)
     #ims = np.random.rand(10, 10, 3, 4)
     ims = rand_im(100, 100, 3, 4, [10, 10, 3])
-    v = pytb.iv.iv(ims, collageBorderWidth = 2)
+    v = pysmtb.iv.iv(ims, collageBorderWidth = 2)

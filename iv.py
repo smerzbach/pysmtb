@@ -47,7 +47,7 @@ try:
 except:
     Tensor = type(None)
 
-from pytb.utils import crop_bounds, pad
+from pysmtb.utils import crop_bounds, pad
 
 '''
 def MyPyQtSlot(*args):
@@ -541,7 +541,7 @@ class iv(QMainWindow):
         if i is None:
             i = self.imind
         if self.annotate:
-            from pytb.utils import annotate_image
+            from pysmtb.utils import annotate_image
             label = ''
             if self.annotate_numbers:
                 label += str(i) + ' '
@@ -967,7 +967,7 @@ class iv(QMainWindow):
                 y1 = np.min([h, int(lims[2] + 0.5)])
                 image = im[y0 : y1, x0 : x1, :]
             elif canvas:
-                from pytb.utils import qimage_to_np
+                from pysmtb.utils import qimage_to_np
                 im = QImage(self.canvas.grab())
                 #im = im.convertToFormat(QImage.Format_RGB888)
                 image = qimage_to_np(im)
