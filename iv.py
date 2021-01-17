@@ -149,8 +149,20 @@ class iv(QMainWindow):
         self.collageActive = kwargs.get('collage', False)
         self.collageTranspose = kwargs.get('collageTranspose', False)
         self.collageTransposeIms = kwargs.get('collageTransposeIms', False)
-        self.collage_nc = int(np.ceil(np.sqrt(self.nims)))
-        self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
+        if 'nr' in kwargs and 'nc' in kwargs:
+            nr = int(kwargs['nr'])
+            nc = int(kwargs['nc'])
+        elif 'nr' in kwargs:
+            nr = int(kwargs['nr'])
+            nc = int(np.ceil(self.nims / nr))
+        elif 'nc' in kwargs:
+            nc = int(kwargs['nc'])
+            nr = int(np.ceil(self.nims / nc))
+        else:
+            nc = int(np.ceil(np.sqrt(self.nims)))
+            nr = int(np.ceil(self.nims / nc))
+        self.collage_nr = nr
+        self.collage_nc = nc
         self.collage_border_width = kwargs.get('collageBorderWidth', 0)
         self.collage_border_value = kwargs.get('collageBorderValue', 0.)
         self.crop = kwargs.get('crop', False)
