@@ -1,10 +1,10 @@
-# pytb
+# pysmtb
 python toolbox of (mostly) image-related helper / visualization functions 
 ```
 from glob import glob
 
-from pytb.iv import iv
-from pytb.utils import read_exr
+from pysmtb.iv import iv
+from pysmtb.utils import read_exr
 
 fns = glob('*.exr')
 ims = [read_exr(fn)[0] for fn in fns]
