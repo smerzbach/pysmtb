@@ -20,6 +20,9 @@ import time
 import types
 from warnings import warn
 
+# avoid problems on QT initialization
+os.environ['QT_STYLE_OVERRIDE'] = ''
+
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
