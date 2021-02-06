@@ -7,6 +7,8 @@ Created on Wed Feb  5 15:04:07 2020
 """
 
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib
+matplotlib.use('Qt5Agg')
 from matplotlib import cm
 from matplotlib.transforms import Bbox
 import matplotlib.pyplot as plt
