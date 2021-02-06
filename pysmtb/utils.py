@@ -9,6 +9,10 @@ Created on Wed Jan 14 23:01:57 2020
 import numpy as np
 import re
 
+try:
+    import torch
+except:
+    pass
 
 def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1, x=0, y=0):
     from PIL import Image
@@ -218,7 +222,6 @@ def clamp(arr, lower=0, upper=1):
     if isinstance(arr, np.ndarray):
         arr = arr.clip(lower, upper)
     else:
-        import torch
         if isinstance(arr, torch.Tensor):
             arr = arr.clamp(lower, upper)
         else:
