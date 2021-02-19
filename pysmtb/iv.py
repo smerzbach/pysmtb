@@ -217,7 +217,6 @@ class iv(QMainWindow):
 
         self.ofname = '' # previous saved image path
         
-        self.setWindowModality(QtCore.Qt.WindowModal)
         self.show()
 
     def crop_bounds(self):
