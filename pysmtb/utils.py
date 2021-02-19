@@ -218,6 +218,57 @@ def read_exr(fname, outputType=np.float16):
     return pixels, channels
 
 
+def read_openexr(fname, channels=None, pixel_type=None, sort_rgb=False):
+    """read OpenEXR images"""
+
+    import OpenEXR
+    import Imath
+
+    if pixel_type is None or isinstance(pixel_type, str) and pixel_type.lower() == 'float':
+        pixel_type = Imath.PixelType(Imath.PixelType.FLOAT)
+        pixel_type_numpy = np.float32
+    elif isinstance(pixel_type, str) and pixel_type.lower() == 'half':
+        pixel_type = Imath.PixelType(Imath.PixelType.HALF)
+        pixel_type_numpy = np.float16
+    elif isinstance(pixel_type, str) and (pixel_type.lower() == 'int' or pixel_type.lower() == 'uint'):
+        pixel_type = Imath.PixelType(Imath.PixelType.UINT)
+        pixel_type_numpy = np.uint32
+    else:
+        raise Exception('unsupported pixel type')
+
+    inds = channels
+
+    file = OpenEXR.InputFile(fname)
+    header = file.header()
+    dw = header['dataWindow']
+    sz = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
+    channels = list(header['channels'].keys())
+
+    if inds is not None:
+        if len(inds) == 1 and inds[0] < 0:
+            channels = channels[:inds[0]]
+        else:
+            channels = [channels[ind] for ind in inds]
+
+    if sort_rgb:
+        def bgr2rgb(key):
+            k = key[-1].lower()
+            if k == 'r':
+                k = '0'
+            elif k == 'g':
+                k =  '1'
+            elif k == 'b':
+                k =  '2'
+            return key[:-1] + k
+        channels.sort(key=bgr2rgb)
+
+    pixels = file.channels(channels, pixel_type)
+    pixels = [np.frombuffer(pix, dtype=pixel_type_numpy).reshape(sz) for pix in pixels]
+    pixels = np.stack(pixels, axis=2)
+
+    return pixels, channels
+
+
 def clamp(arr, lower=0, upper=1):
     if isinstance(arr, np.ndarray):
         arr = arr.clip(lower, upper)
