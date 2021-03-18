@@ -394,3 +394,10 @@ def qimage_to_np(im):
     return arr
 
 
+def sortrows(arr, order=None):
+    if order is None:
+        return arr[np.lexsort(arr.T[::-1])]
+    else:
+        keys = arr.T[order]
+        return arr[np.lexsort(keys[::-1])]
+
