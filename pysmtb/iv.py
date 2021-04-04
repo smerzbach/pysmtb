@@ -92,53 +92,48 @@ class iv(QMainWindow):
         except:
             pass
 
-        # store list of input images
-        if len(args) == 1 and isinstance(args[0], Tensor):
-            # handle torch.Tensor input
-            if args[0].ndim <= 3:
-                self.images = [args[0].detach().cpu().numpy()]
-            elif args[0].ndim == 4:
-                # probably a torch tensor with dimensions [batch, channels, y, x]
-                self.images = [[]] * args[0].shape[0]
-                tmp = args[0].detach().cpu().numpy().transpose((2, 3, 1, 0))
-                for imind in range(tmp.shape[3]):
-                    self.images[imind] = tmp[:, :, :, imind]
-                del tmp
-            else:
-                raise Exception('torch tensors can at most have 4 dimensions')
-        
-        elif len(args) == 1 and isinstance(args[0], np.ndarray) and len(args[0].shape) == 4:
-            # handle 4D numpy.ndarray input by slicing in 4th dimension
-            self.images = [[]] * args[0].shape[3]
-            for imind in range(args[0].shape[3]):
-                self.images[imind] = args[0][:, :, :, imind]
-        
-        elif len(args) == 1 and (isinstance(args[0], list) or isinstance(args[0], tuple)):
-            self.images = list(args[0])
-
-        elif isinstance(args[0], dict):
-            # images specified in dictionary -> use keys as labels
-            if not 'labels' in kwargs:
-                labels = list(args[0].keys())
-                kwargs['labels'] = labels
-                self.images = list(args[0].values())
-        else:
-            self.images = list(args)
-        
-        for imind in range(len(self.images)):
-            if isinstance(self.images[imind], Tensor):
-                self.images[imind] = self.images[imind].detach().cpu().numpy()
-                if self.images[imind].ndim == 4:
+        def handle_input(arg, images, labels, label=None):
+            if isinstance(arg, Tensor):
+                # handle torch.Tensor input
+                if arg.ndim <= 3:
+                    images.append(np.atleast_3d(arg.detach().cpu().numpy()))
+                elif arg.ndim == 4:
                     # probably a torch tensor with dimensions [batch, channels, y, x]
-                    self.images[imind] = self.images[imind].transpose((2, 3, 1, 0))
-                elif self.images[imind].ndim > 4:
+                    tmp = arg.detach().cpu().numpy().transpose((2, 3, 1, 0))
+                    for imind in range(tmp.shape[3]):
+                        images.append(tmp[:, :, :, imind])
+                    del tmp
+                else:
                     raise Exception('torch tensors can at most have 4 dimensions')
-                    
-            self.images[imind] = np.atleast_3d(self.images[imind])
-            if self.images[imind].shape[2] != 1 and self.images[imind].shape[2] != 3:
-                if self.images[imind].ndim == 4:
-                    
-                    self.images[imind] = self.images[imind].transpose((2, 3, 1, 0))
+
+            elif isinstance(arg, np.ndarray):
+                if arg.ndim <= 3:
+                    images.append(np.atleast_3d(arg))
+                elif arg.ndim == 4:
+                    # handle 4D numpy.ndarray input by slicing in 4th dimension
+                    for imind in range(arg.shape[3]):
+                        images.append(arg[:, :, :, imind])
+                else:
+                    raise Exception('input arrays can be at most 4D')
+
+            else:
+                raise Exception('unexpected input type ' + str(type(arg)))
+
+            if label is not None:
+                labels.append(label)
+
+        # store list of input images
+        self.images = []
+        self.labels = kwargs.get('labels', [])
+        for arg in args:
+            if isinstance(arg, list) or isinstance(arg, tuple):
+                for img in arg:
+                    handle_input(img, self.images, self.labels)
+            elif isinstance(arg, dict):
+                for label, img in arg.items():
+                    handle_input(img, self.images, self.labels, label=label)
+            else:
+                handle_input(arg, self.images, self.labels)
 
         self.imind = 0 # currently selected image
         self.nims = len(self.images)
@@ -767,6 +762,9 @@ class iv(QMainWindow):
                 self.uiCBCollageActive.blockSignals(False)
             height, width = self.ih.get_size()
             im = self.get_img(tonemap=True, decorate=True)
+            if im.dtype == np.float16:
+                # matplotlib rejects float16...
+                im = im.astype(np.float32)
             if height != im.shape[0] or width != im.shape[1]:
                 # image size changed, create new axes
                 self.ax.clear()
