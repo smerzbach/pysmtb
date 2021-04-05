@@ -1,13 +1,12 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 Created on Wed Jan 14 23:01:57 2020
 
-@author: spl
+@author: Sebastian Merzbach <smerzbach@gmail.com>
 """
 
 import numpy as np
 import re
+from typing import Dict
 
 try:
     import torch
@@ -400,4 +399,26 @@ def sortrows(arr, order=None):
     else:
         keys = arr.T[order]
         return arr[np.lexsort(keys[::-1])]
+
+
+class Dct(Dict):
+    """Dictionary with nicer formatting and dot notation access."""
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError as exp:
+            raise AttributeError('Key ' + str(key) + ' does not exist') from exp
+
+    def __setattr__(self, key, val):
+        self[key] = val
+
+    def __repr__(self):
+        if not len(self):
+            return ""
+        width = max([len(str(k)) for k in self])
+        items = '{:' + str(width + 2) + 's} {}'
+        items = [items.format(str(key) + ':', self[key]) for key in sorted(self.keys())]
+        items = '\n'.join(items)
+        return items
 
