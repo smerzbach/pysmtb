@@ -650,6 +650,8 @@ class iv(QMainWindow):
         
         #self.ih.set_data(self.tonemap(coll))
         self.ax.clear()
+        if coll.dtype == np.float16:
+            coll = coll.astype(np.float32)
         self.ih = self.ax.imshow(coll, origin='upper')
         
         height, width = self.ih.get_size()
