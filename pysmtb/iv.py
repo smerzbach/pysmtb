@@ -26,8 +26,8 @@ os.environ['QT_STYLE_OVERRIDE'] = ''
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QGridLayout, QHBoxLayout, QLabel, \
-    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QVBoxLayout, QWidget, QFileDialog
+from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
+    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout, QWidget, QFileDialog
 from PyQt5.Qt import QImage
 
 import matplotlib
@@ -140,10 +140,17 @@ class iv(QMainWindow):
         self.scale = kwargs.get('scale', 1.)
         self.gamma = kwargs.get('gamma', 1.)
         self.offset = kwargs.get('offset', 0.)
-        self.autoscalePrctile = kwargs.get('autoscalePrctile', 0.1)
+        self.autoscalePrctiles = kwargs.get('autoscalePrctile', 0.1)
+        if np.isscalar(self.autoscalePrctiles):
+            self.autoscalePrctiles = np.array([self.autoscalePrctiles, 100. - self.autoscalePrctiles])
+        assert len(self.autoscalePrctiles) == 2, 'autoscalePrctiles must have 2 elements!'
+        self.autoscalePrctiles[0] = np.clip(self.autoscalePrctiles[0], 0., 50.)
+        self.autoscalePrctiles[1] = np.clip(self.autoscalePrctiles[1], 50., 100.)
         self.autoscaleUsePrctiles = kwargs.get('autoscaleUsePrctiles', True)
         self.autoscaleEnabled = kwargs.get('autoscale', True)
-        self.autoscaleOnChange = kwargs.get('autoscaleOnChange', True)
+        self.autoscaleLower = self.autoscaleEnabled
+        self.autoscaleUpper = self.autoscaleEnabled
+        self.autoscaleGlobal = kwargs.get('autoscaleGlobal', False)
         self.collageActive = kwargs.get('collage', False)
         self.collageTranspose = kwargs.get('collageTranspose', False)
         self.collageTransposeIms = kwargs.get('collageTransposeIms', False)
@@ -189,6 +196,9 @@ class iv(QMainWindow):
         self.updateImage()
         if self.autoscaleEnabled:
             self.autoscale()
+        else:
+            self.uiLabelAutoscaleLower.setText('%f' % 0.)
+            self.uiLabelAutoscaleUpper.setText('%f' % 1.)
         self.cur_xlims = self.ih.axes.axis()[0 : 2]
         self.cur_ylims = self.ih.axes.axis()[2 :]
         
@@ -243,125 +253,215 @@ class iv(QMainWindow):
         except Exception:
             self.ax.invert_yaxis()
 
+        width = 200
         self.uiLabelModifiers = QLabel('')
+        self.uiLabelModifiers.setMaximumWidth(width)
         self.uiLEScale = QLineEdit(str(self.scale))
-        self.uiLEScale.setMinimumWidth(200)
+        self.uiLEScale.setMaximumWidth(width)
         self.uiLEScale.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEScale))
         self.uiLEGamma = QLineEdit(str(self.gamma))
-        self.uiLEGamma.setMinimumWidth(200)
+        self.uiLEGamma.setMaximumWidth(width)
         self.uiLEGamma.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEGamma))
         self.uiLEOffset = QLineEdit(str(self.offset))
-        self.uiLEOffset.setMinimumWidth(200)
+        self.uiLEOffset.setMaximumWidth(width)
         self.uiLEOffset.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEOffset))
-        self.uiLEAutoscalePrctile = QLineEdit(str(self.autoscalePrctile))
-        self.uiLEAutoscalePrctile.setMinimumWidth(200)
-        self.uiLEAutoscalePrctile.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEAutoscalePrctile))
-        self.uiCBAutoscaleUsePrctiles = QCheckBox('use percentiles')
+        self.uiCBAutoscaleLower = QCheckBox('lower')
+        self.uiCBAutoscaleLower.setMaximumWidth(width // 2)
+        self.uiCBAutoscaleLower.setCheckState(self.autoscaleLower)
+        self.uiCBAutoscaleLower.setTristate(False)
+        self.uiCBAutoscaleLower.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleLower, state))
+        self.uiCBAutoscaleUpper = QCheckBox('upper')
+        self.uiCBAutoscaleUpper.setMaximumWidth(width // 2)
+        self.uiCBAutoscaleUpper.setCheckState(self.autoscaleUpper)
+        self.uiCBAutoscaleUpper.setTristate(False)
+        self.uiCBAutoscaleUpper.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUpper, state))
+        form_autoscale = QHBoxLayout()
+        form_autoscale.addWidget(self.uiCBAutoscaleLower)
+        form_autoscale.addWidget(self.uiCBAutoscaleUpper)
+        self.uiLEAutoscalePrctileLower = QLineEdit(str(self.autoscalePrctiles[0]))
+        self.uiLEAutoscalePrctileLower.setMaximumWidth(width // 2)
+        self.uiLEAutoscalePrctileLower.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEAutoscalePrctileLower))
+        self.uiLEAutoscalePrctileUpper = QLineEdit(str(self.autoscalePrctiles[1]))
+        self.uiLEAutoscalePrctileUpper.setMaximumWidth(width // 2)
+        self.uiLEAutoscalePrctileUpper.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEAutoscalePrctileUpper))
+        form_percentiles = QHBoxLayout()
+        form_percentiles.addWidget(self.uiLEAutoscalePrctileLower)
+        form_percentiles.addWidget(self.uiLEAutoscalePrctileUpper)
+        self.uiLabelAutoscaleLower = QLabel('%f' % 0.)
+        self.uiLabelAutoscaleLower.setMaximumWidth(width // 2)
+        self.uiLabelAutoscaleUpper = QLabel('%f' % 1.)
+        self.uiLabelAutoscaleUpper.setMaximumWidth(width // 2)
+        form_bounds = QHBoxLayout()
+        form_bounds.addWidget(self.uiLabelAutoscaleLower)
+        form_bounds.addWidget(self.uiLabelAutoscaleUpper)
+        self.uiCBAutoscaleUsePrctiles = QCheckBox('prcntiles')
+        self.uiCBAutoscaleUsePrctiles.setMaximumWidth(width // 2)
         self.uiCBAutoscaleUsePrctiles.setCheckState(self.autoscaleUsePrctiles)
         self.uiCBAutoscaleUsePrctiles.setTristate(False)
         self.uiCBAutoscaleUsePrctiles.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUsePrctiles, state))
-        self.uiCBautoscaleEnabled = QCheckBox('globally / on change')
-        self.uiCBautoscaleEnabled.setCheckState(2 if self.autoscaleEnabled else 0)
-        self.uiCBautoscaleEnabled.setTristate(True)
-        self.uiCBautoscaleEnabled.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBautoscaleEnabled, state))
+        self.uiCBAutoscaleGlobal = QCheckBox('global')
+        self.uiCBAutoscaleGlobal.setMaximumWidth(width // 2)
+        self.uiCBAutoscaleGlobal.setCheckState(self.autoscaleGlobal)
+        self.uiCBAutoscaleGlobal.setTristate(False)
+        self.uiCBAutoscaleGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleGlobal, state))
+        form_autoscale2 = QHBoxLayout()
+        form_autoscale2.addWidget(self.uiCBAutoscaleUsePrctiles)
+        form_autoscale2.addWidget(self.uiCBAutoscaleGlobal)
         if self.nims > 1:
             self.uiCBCollageActive = QCheckBox('enable')
+            self.uiCBCollageActive.setMaximumWidth(width // 2)
             self.uiCBCollageActive.setCheckState(self.collageActive)
             self.uiCBCollageActive.setTristate(False)
             self.uiCBCollageActive.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageActive, state))
-            self.uiCBCollageTranspose = QCheckBox('transpose')
-            self.uiCBCollageTranspose.setCheckState(self.collageTranspose)
-            self.uiCBCollageTranspose.setTristate(False)
+            self.uiCBCollageTranspose = QCheckBox('transp.')
+            self.uiCBCollageTranspose.setMaximumWidth(width // 2)
+            self.uiCBCollageTranspose.setCheckState(2 if self.collageTranspose else self.collageTransposeIms)
+            self.uiCBCollageTranspose.setTristate(True)
             self.uiCBCollageTranspose.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTranspose, state))
-            self.uiCBCollageTransposeIms = QCheckBox('transpose images')
-            self.uiCBCollageTransposeIms.setCheckState(self.collageTransposeIms)
-            self.uiCBCollageTransposeIms.setTristate(False)
+            self.uiCBCollageTransposeIms = QCheckBox('transp. ims.')
+            self.uiCBCollageTransposeIms.setMaximumWidth(width // 2)
+            self.uiCBCollageTransposeIms.setCheckState(2 if self.collageTranspose else self.collageTransposeIms)
+            self.uiCBCollageTransposeIms.setTristate(True)
             self.uiCBCollageTransposeIms.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTransposeIms, state))
+            form_collage = QHBoxLayout()
+            form_collage.addWidget(self.uiCBCollageActive)
+            form_collage.addWidget(self.uiCBCollageTranspose)
             self.uiLECollageNr = QLineEdit(str(self.collage_nr))
-            self.uiLECollageNr.setMinimumWidth(200)
+            self.uiLECollageNr.setMaximumWidth(width // 2)
             self.uiLECollageNr.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNr))
             self.uiLECollageNc = QLineEdit(str(self.collage_nc))
-            self.uiLECollageNc.setMinimumWidth(200)
+            self.uiLECollageNc.setMaximumWidth(width // 2)
             self.uiLECollageNc.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNc))
+            form_collage2 = QHBoxLayout()
+            form_collage2.addWidget(self.uiLECollageNr)
+            form_collage2.addWidget(self.uiLECollageNc)
             self.uiLECollageBW = QLineEdit(str(self.collage_border_width))
-            self.uiLECollageBW.setMinimumWidth(200)
+            self.uiLECollageBW.setMaximumWidth(width // 2)
             self.uiLECollageBW.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBW))
             self.uiLECollageBV = QLineEdit(str(self.collage_border_value))
-            self.uiLECollageBV.setMinimumWidth(200)
+            self.uiLECollageBV.setMaximumWidth(width // 2)
             self.uiLECollageBV.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBV))
+            form_collage3 = QHBoxLayout()
+            form_collage3.addWidget(self.uiLECollageBW)
+            form_collage3.addWidget(self.uiLECollageBV)
         self.uiCBCrop = QCheckBox('enable')
+        self.uiCBCrop.setMaximumWidth(width // 2)
         self.uiCBCrop.setCheckState(self.crop)
         self.uiCBCrop.setTristate(False)
         self.uiCBCrop.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCrop, state))
-        self.uiCBCropGlobal = QCheckBox('enable')
+        self.uiCBCropGlobal = QCheckBox('global')
+        self.uiCBCropGlobal.setMaximumWidth(width // 2)
         self.uiCBCropGlobal.setCheckState(self.crop_global)
         self.uiCBCropGlobal.setTristate(False)
         self.uiCBCropGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCropGlobal, state))
+        form_crop = QHBoxLayout()
+        form_crop.addWidget(self.uiCBCrop)
+        form_crop.addWidget(self.uiCBCropGlobal)
         self.uiLECropBackground = QLineEdit(str(self.crop_background))
-        self.uiLECropBackground.setMinimumWidth(200)
+        self.uiLECropBackground.setMaximumWidth(width)
         self.uiLECropBackground.editingFinished.connect(lambda state: self.callbackLineEdit(self.uiLECropBackground))
         self.uiCBAnnotate = QCheckBox('enable')
+        self.uiCBAnnotate.setMaximumWidth(width // 2)
         self.uiCBAnnotate.setCheckState(self.annotate)
         self.uiCBAnnotate.setTristate(False)
         self.uiCBAnnotate.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotate, state))
-        self.uiCBAnnotateNumbers = QCheckBox('enable')
+        self.uiCBAnnotateNumbers = QCheckBox('numbers')
+        self.uiCBAnnotateNumbers.setMaximumWidth(width // 2)
         self.uiCBAnnotateNumbers.setCheckState(self.annotate_numbers)
         self.uiCBAnnotateNumbers.setTristate(False)
         self.uiCBAnnotateNumbers.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotateNumbers, state))
+        form_annotate = QHBoxLayout()
+        form_annotate.addWidget(self.uiCBAnnotate)
+        form_annotate.addWidget(self.uiCBAnnotateNumbers)
         self.uiLEFontSize = QLineEdit(str(self.font_size))
-        self.uiLEFontSize.setMinimumWidth(200)
+        self.uiLEFontSize.setMaximumWidth(width)
         self.uiLEFontSize.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontSize))
         self.uiLEFontColor = QLineEdit(str(self.font_color))
-        self.uiLEFontColor.setMinimumWidth(200)
+        self.uiLEFontColor.setMaximumWidth(width)
         self.uiLEFontColor.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontColor))
+
+        def line():
+            l = QFrame()
+            # l.setGeometry(QRect(320, 150, 118, 3))
+            l.setFixedHeight(3)
+            l.setFrameShape(QFrame.HLine)
+            l.setFrameShadow(QFrame.Sunken)
+            return l
+
+        # form = QFormLayout()
+        form = QGridLayout()
+        row = [0]
+        def addRow(label, widget=None):
+            if widget is None:
+                form.addWidget(label, row[0], 0, 1, 2)
+            else:
+                form.addWidget(label, row[0], 0, 1, 1)
+                if isinstance(widget, QWidget):
+                    form.addWidget(widget, row[0], 1, 1, 1)
+                else:
+                    form.addLayout(widget, row[0], 1, 1, 1)
+            row[0] += 1
+        addRow(QLabel('modifiers:'), self.uiLabelModifiers)
+        addRow(QLabel('scale:'), self.uiLEScale)
+        addRow(QLabel('gamma:'), self.uiLEGamma)
+        addRow(QLabel('offset:'), self.uiLEOffset)
+        addRow(line())
+        addRow(QLabel('autoScale:'), form_autoscale)
+        addRow(QLabel(''), form_autoscale2)
+        addRow(QLabel('percentile:'), form_percentiles)
+        addRow(QLabel('bounds:'), form_bounds)
+        addRow(line())
+        if self.nims > 1:
+            addRow(QLabel('collage:'), form_collage)
+            addRow(QLabel('per img:'), self.uiCBCollageTransposeIms)
+            addRow(QLabel('NR x NC:'), form_collage2)
+            addRow(QLabel('BW x BV:'), form_collage3)
+            addRow(line())
+        addRow(QLabel('crop:'), form_crop)
+        addRow(QLabel('crop bgrnd:'), self.uiLECropBackground)
+        addRow(line())
+        addRow(QLabel('annotate:'), form_annotate)
+        addRow(QLabel('font size:'), self.uiLEFontSize)
+        addRow(QLabel('font value:'), self.uiLEFontColor)
+        addRow(line())
+
+        width_bottom = width + 100
         self.uiPBCopyClipboard = QPushButton('&copy')
+        self.uiPBCopyClipboard.setMinimumWidth(width_bottom // 2)
+        self.uiPBCopyClipboard.setMaximumWidth(width_bottom // 2)
         self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
         self.uiPBCopyClipboardZoomed = QPushButton('copy &zoomed')
+        self.uiPBCopyClipboardZoomed.setMinimumWidth(width_bottom // 2)
+        self.uiPBCopyClipboardZoomed.setMaximumWidth(width_bottom // 2)
         self.uiPBCopyClipboardZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboardZoomed))
         self.uiPBSave = QPushButton('&save')
+        self.uiPBSave.setMinimumWidth(width_bottom // 2)
+        self.uiPBSave.setMaximumWidth(width_bottom // 2)
         self.uiPBSave.clicked.connect(lambda: self.callbackPushButton(self.uiPBSave))
         self.uiPBSaveZoomed = QPushButton('sa&ve zoomed')
+        self.uiPBSaveZoomed.setMinimumWidth(width_bottom // 2)
+        self.uiPBSaveZoomed.setMaximumWidth(width_bottom // 2)
         self.uiPBSaveZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveZoomed))
         self.uiPBSaveCanvas = QPushButton('s&ave canvas')
+        self.uiPBSaveCanvas.setMinimumWidth(width_bottom // 2)
+        self.uiPBSaveCanvas.setMaximumWidth(width_bottom // 2)
         self.uiPBSaveCanvas.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveCanvas))
-        
-        form = QFormLayout()
-        form.addRow(QLabel('modifiers:'), self.uiLabelModifiers)
-        form.addRow(QLabel('scale:'), self.uiLEScale)
-        form.addRow(QLabel('gamma:'), self.uiLEGamma)
-        form.addRow(QLabel('offset:'), self.uiLEOffset)
-        form.addRow(QLabel('autoScale:'), self.uiCBAutoscaleUsePrctiles)
-        form.addRow(QLabel('percentile:'), self.uiLEAutoscalePrctile)
-        form.addRow(QLabel('autoScale:'), self.uiCBautoscaleEnabled)
-        #form.addRow(QLabel('autoScale:'), self.uiCBautoscaleOnChange)
-        if self.nims > 1:
-            form.addRow(QLabel('collage:'), self.uiCBCollageActive)
-            form.addRow(QLabel('collage:'), self.uiCBCollageTranspose)
-            form.addRow(QLabel('collage:'), self.uiCBCollageTransposeIms)
-            form.addRow(QLabel('collage #rows:'), self.uiLECollageNr)
-            form.addRow(QLabel('collage #cols:'), self.uiLECollageNc)
-            form.addRow(QLabel('collage #BW:'), self.uiLECollageBW)
-            form.addRow(QLabel('collage #BV:'), self.uiLECollageBV)
-        form.addRow(QLabel('crop:'), self.uiCBCrop)
-        form.addRow(QLabel('crop global:'), self.uiCBCropGlobal)
-        form.addRow(QLabel('crop bgrnd:'), self.uiLECropBackground)
-        form.addRow(QLabel('annotate:'), self.uiCBAnnotate)
-        form.addRow(QLabel('annotate numbers:'), self.uiCBAnnotateNumbers)
-        form.addRow(QLabel('font size:'), self.uiLEFontSize)
-        form.addRow(QLabel('font value:'), self.uiLEFontColor)
-        form_bottom = QHBoxLayout()
-        form_bottom.addWidget(self.uiPBCopyClipboard)
-        form_bottom.addWidget(self.uiPBCopyClipboardZoomed)
-        form_bottom2 = QHBoxLayout()
-        form_bottom2.addWidget(self.uiPBSave)
-        form_bottom2.addWidget(self.uiPBSaveZoomed)
-        form_bottom2.addWidget(self.uiPBSaveCanvas)
+
+        row_bottom = 0
+        form_bottom = QGridLayout()
+        form_bottom.addWidget(self.uiPBCopyClipboard, row_bottom, 0)
+        form_bottom.addWidget(self.uiPBCopyClipboardZoomed, row_bottom, 1)
+        row_bottom += 1
+        form_bottom.addWidget(self.uiPBSave, row_bottom, 0)
+        form_bottom.addWidget(self.uiPBSaveZoomed, row_bottom, 1)
+        row_bottom += 1
+        form_bottom.addWidget(self.uiPBSaveCanvas, row_bottom, 0)
+        row_bottom += 1
 
         vbox = QVBoxLayout()
         vbox.addLayout(form)
         vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
         vbox.addLayout(form_bottom)
-        vbox.addLayout(form_bottom2)
         
         hbox = QHBoxLayout()
         hbox.addWidget(self.canvas)
@@ -404,8 +504,11 @@ class iv(QMainWindow):
             self.setGamma(tmp)
         elif ui == self.uiLEOffset:
             self.setOffset(tmp)
-        elif ui == self.uiLEAutoscalePrctile:
-            self.autoscalePrctile = tmp
+        elif ui == self.uiLEAutoscalePrctileLower:
+            self.autoscalePrctiles[0] = np.clip(tmp, 0., 50.)
+            self.autoscale()
+        elif ui == self.uiLEAutoscalePrctileUpper:
+            self.autoscalePrctiles[1] = np.clip(tmp, 50., 100.)
             self.autoscale()
         elif hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
             self.collage_nr = int(tmp)
@@ -436,9 +539,18 @@ class iv(QMainWindow):
             self.autoscaleUsePrctiles = bool(state)
             if self.autoscaleEnabled:
                 self.autoscale()
-        elif ui == self.uiCBautoscaleEnabled:
-            self.autoscaleEnabled = bool(state)
-            self.autoscaleOnChange = state == 2
+        elif ui == self.uiCBAutoscaleGlobal:
+            self.autoscaleGlobal = bool(state)
+            if self.autoscaleEnabled:
+                self.autoscale()
+        elif ui == self.uiCBAutoscaleLower:
+            self.autoscaleLower = bool(state)
+            self.autoscaleEnabled = self.autoscaleLower or self.autoscaleUpper
+            if self.autoscaleEnabled:
+                self.autoscale()
+        elif ui == self.uiCBAutoscaleUpper:
+            self.autoscaleUpper = bool(state)
+            self.autoscaleEnabled = self.autoscaleLower or self.autoscaleUpper
             if self.autoscaleEnabled:
                 self.autoscale()
         elif hasattr(self, 'uiCBCollageActive') and ui == self.uiCBCollageActive:
@@ -463,7 +575,7 @@ class iv(QMainWindow):
         elif ui == self.uiCBAnnotateNumbers:
             self.annotate_numbers = bool(state)
             self.updateImage()
-            
+
     def callbackPushButton(self, ui):
         if ui == self.uiPBCopyClipboard:
             self.copy_to_clipboard()
@@ -565,24 +677,28 @@ class iv(QMainWindow):
     def autoscale(self):
         # autoscale between user-selected percentiles
         if self.autoscaleUsePrctiles:
-            if self.autoscaleOnChange:
-                lower, upper = np.percentile(self.get_img(decorate=False), (self.autoscalePrctile, 100 - self.autoscalePrctile))
-            else:
-                limits = [np.percentile(image, (self.autoscalePrctile, 100 - self.autoscalePrctile))
+            if self.autoscaleGlobal:
+                limits = [np.percentile(image, self.autoscalePrctiles)
                           for image in self.get_imgs(tonemap=False, decorate=False)]
                 lower = np.min([lims[0] for lims in limits])
                 upper= np.max([lims[1] for lims in limits])
-        else:
-            if self.autoscaleOnChange:
-                im = self.get_img(tonemap=False, decorate=False)
-                lower = np.min(im)
-                upper = np.max(im)
             else:
+                lower, upper = np.percentile(self.get_img(tonemap=False, decorate=False), self.autoscalePrctiles)
+        else:
+            if self.autoscaleGlobal:
                 ims = self.get_imgs(tonemap=False, decorate=False)
                 lower = np.min([np.min(image) for image in ims])
                 upper = np.max([np.max(image) for image in ims])
-        self.setOffset(lower, False)
-        self.setScale(1. / (upper - lower), True)
+            else:
+                im = self.get_img(tonemap=False, decorate=False)
+                lower = np.min(im)
+                upper = np.max(im)
+        if self.autoscaleLower:
+            self.setOffset(lower, False)
+            self.uiLabelAutoscaleLower.setText('%f' % lower)
+        if self.autoscaleUpper:
+            self.setScale(1. / (upper - lower), True)
+            self.uiLabelAutoscaleUpper.setText('%f' % upper)
 
     def toggleautoscaleUsePrctiles(self):
         self.autoscaleUsePrctiles = not self.autoscaleUsePrctiles
@@ -787,9 +903,11 @@ class iv(QMainWindow):
     def setScale(self, scale, update=True):
         self.scale = scale
         self.uiLEScale.setText(str(self.scale))
+        self.uiLabelAutoscaleLower.setText('%f' % self.offset)
+        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
         if update:
             self.updateImage()
-    
+
     def setGamma(self, gamma, update=True):
         self.gamma = gamma
         self.uiLEGamma.setText(str(self.gamma))
@@ -799,9 +917,11 @@ class iv(QMainWindow):
     def setOffset(self, offset, update=True):
         self.offset = offset
         self.uiLEOffset.setText(str(self.offset))
+        self.uiLabelAutoscaleLower.setText('%f' % self.offset)
+        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
         if update:
             self.updateImage()
-    
+
     def onclick(self, event):
         if event.dblclick:
             self.reset_zoom()
@@ -861,12 +981,12 @@ class iv(QMainWindow):
                 # toggle showing collage
                 self.collageActive = not self.collageActive
             # also disable per-image scaling limit computation
-            self.autoscaleOnChange = not self.autoscaleOnChange
+            self.autoscaleGlobal = not self.autoscaleGlobal
         elif key == Qt.Key_O:
             self.offset = 0.
         elif key == Qt.Key_P:
-            self.autoscaleOnChange = not self.autoscaleOnChange
-            print('per-image scaling is %s' % ('on' if self.autoscaleOnChange else 'off'))
+            self.autoscaleGlobal = not self.autoscaleGlobal
+            print('per-image scaling is %s' % ('on' if self.autoscaleGlobal else 'off'))
             self.autoscale()
         elif key == Qt.Key_S:
             self.scale = 1.
@@ -917,14 +1037,13 @@ class iv(QMainWindow):
     def onscroll(self, event):
         if self.control and self.shift:
             # autoscale percentiles
-            self.autoscalePrctile *= np.power(1.1, event.step)
-            self.autoscalePrctile = np.minimum(100, self.autoscalePrctile)
-            print('auto percentiles: [%3.5f, %3.5f]' % (self.autoscalePrctile, 100 - self.autoscalePrctile))
+            self.autoscalePrctiles[0] = np.clip(self.autoscalePrctiles[0] / np.power(1.1, event.step), 0., 50.)
+            self.autoscalePrctiles[1] = np.clip(self.autoscalePrctiles[1] * np.power(1.1, event.step), 50., 100.)
+            print('auto percentiles: [%3.5f, %3.5f]' % (self.autoscalePrctiles[0], self.autoscalePrctiles[1]))
             self.autoscaleUsePrctiles = True
             self.autoscale()
         elif self.control:
             # scale
-            #self.setScale(self.scale * np.power(1.1, event.step))
             self.setScale(self.scale * np.power(1.1, event.step))
         elif self.shift:
             # gamma
@@ -941,7 +1060,6 @@ class iv(QMainWindow):
             print('image %d / %d' % (self.imind + 1, self.nims))
             if self.autoscaleEnabled:
                 self.autoscale()
-                return
         self.updateImage()
 
     def copy_to_clipboard(self):
