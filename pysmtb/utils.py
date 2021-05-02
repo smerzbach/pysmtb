@@ -79,7 +79,7 @@ def collage(images, **kwargs):
         else:
             images = [images]
     if isinstance(images, list):
-        images = [np.atleast_3d(im) for im in ims]
+        images = [np.atleast_3d(im) for im in images]
 
     nims = len(images)
 
