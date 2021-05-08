@@ -5,7 +5,9 @@ Created on Wed Jan 14 23:01:57 2020
 """
 
 import numpy as np
+import os
 import re
+import sys
 from typing import Dict
 
 try:
@@ -19,7 +21,10 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], 
     from PIL import ImageDraw
 
     if font_path is None:
-        font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
+        if sys.platform == 'win32':
+            font_path = os.path.join(os.getenv('WINDIR'), 'Fonts', 'cour.ttf')
+        else:
+            font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf'
 
     image = np.atleast_3d(image)
 
