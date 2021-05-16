@@ -98,6 +98,7 @@ def collage(images, **kwargs):
     bv = kwargs.get('bv', 0)  # border value
     transpose = kwargs.get('transpose', False)
     transposeIms = kwargs.get('transposeIms', False)
+    fill_value = kwargs.get('fill_value', 1)
 
     if nr * nc < nims:
         nc = int(np.ceil(np.sqrt(nims)))
@@ -105,13 +106,14 @@ def collage(images, **kwargs):
 
     # pad array so it matches the product nc * nr
     padding = nc * nr - nims
+    heights, widths, num_channels = zip(*[im.shape for im in images])
     h = np.max([im.shape[0] for im in images])
     w = np.max([im.shape[1] for im in images])
-    numChans = np.max([im.shape[2] for im in images])
-    ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in images]
-    ims += [np.zeros((h, w, numChans))] * padding
+    num_channels = np.max([im.shape[2] for im in images])
+    ims = [pad(im, new_width=w, new_height=h, new_num_channels=num_channels) for im in images]
+    ims += [fill_value * np.ones((h, w, num_channels))] * padding
     coll = np.stack(ims, axis=3)
-    coll = np.reshape(coll, (h, w, numChans, nr, nc))
+    coll = np.reshape(coll, (h, w, num_channels, nr, nc))
     # 0  1  2   3   4
     # y, x, ch, co, ro
     if bw:
@@ -144,7 +146,7 @@ def collage(images, **kwargs):
             dim1 = w
             #                          nc h  nr w  ch
             coll = np.transpose(coll, (3, 0, 4, 1, 2))
-    coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, numChans))
+    coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, num_channels))
 
     return coll
 
