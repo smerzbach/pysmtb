@@ -6,12 +6,14 @@ Created on Thu Oct 18 19:24:05 2018
 
 """
 
+from copy import deepcopy
 from datetime import datetime
 from functools import wraps
 try:
     from IPython import get_ipython
 except:
     pass
+import imageio
 import numpy as np
 import os
 import sys
@@ -23,10 +25,11 @@ from warnings import warn
 # avoid problems on QT initialization
 os.environ['QT_STYLE_OVERRIDE'] = ''
 
+from PyQt5 import QtGui
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
+from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
     QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout, QWidget, QFileDialog
 from PyQt5.Qt import QImage
 
@@ -46,8 +49,12 @@ from matplotlib import pyplot as plt
 import matplotlib.gridspec as gridspec
 
 try:
+    import colour
+except ModuleNotFoundError:
+    colour = None
+try:
     from torch import Tensor
-except:
+except ModuleNotFoundError:
     Tensor = type(None)
 
 from pysmtb.utils import crop_bounds, pad
@@ -69,17 +76,46 @@ def MyPyQtSlot(*args):
     return slotdecorator
 '''
 
-class iv(QMainWindow):
-    zoom_factor = 1.1
-    x_zoom = True
-    y_zoom = True
-    x_stop_at_orig = True
-    y_stop_at_orig = True
+
+def iv(*args, **kwargs):
+    return IV(*args, **kwargs)
+
+
+class IV(QMainWindow):
+    @staticmethod
+    def print_usage():
+        print(' ')
+        print('hotkeys: ')
+        print('a: trigger autoscale')
+        print('A: toggle autoscale of [min, max] or ')
+        print('   [prctile_low, prctile_high] -> [0, 1], ')
+        print('   prctiles can be changed via ctrl+shift+wheel')
+        print('c: toggle autoscale on image change')
+        print('G: reset gamma to 1')
+        print('L: create collage by arranging all images in a ')
+        print('   rectangular manner')
+        print('O: reset offset to 0')
+        print('p: toggle per image auto scale limit computations ')
+        print('   (vs. globally over all images)')
+        print('S: reset scale to 1')
+        print('Z: reset zoom to 100%')
+        print('left / right:         switch to next / previous image')
+        print('page down / up:       go through images in ~10% steps')
+        print('')
+        print('wheel:                zoom in / out (inside image axes)')
+        print('wheel:                switch to next / previous image')
+        print('                      (outside image axes)')
+        print('ctrl + wheel:         scale up / down')
+        print('shift + wheel:        gamma up / down')
+        print('ctrl + shift + wheel: increase / decrease autoscale')
+        print('                      percentiles')
+        print('left mouse dragged:   pan image')
+        print('')
 
     def __init__(self, *args, **kwargs):
-        app = QtCore.QCoreApplication.instance()
-        if app is None:
-            app = QApplication([''])
+        self.app = QtCore.QCoreApplication.instance()
+        if self.app is None:
+            self.app = QApplication([''])
         QMainWindow.__init__(self, parent=None)
 
         self.timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -87,37 +123,37 @@ class iv(QMainWindow):
 
         try:
             shell = get_ipython()
-            if not shell is None:
+            if shell is not None:
                 shell.magic('%matplotlib qt')
-        except:
+        except NameError:
             pass
 
-        def handle_input(arg, images, labels, label=None):
-            if isinstance(arg, Tensor):
+        def handle_input(inp, images, labels, label=None):
+            if isinstance(inp, Tensor):
                 # handle torch.Tensor input
-                if arg.ndim <= 3:
-                    images.append(np.atleast_3d(arg.detach().cpu().numpy()))
-                elif arg.ndim == 4:
+                if inp.ndim <= 3:
+                    images.append(np.atleast_3d(inp.detach().cpu().numpy()))
+                elif inp.ndim == 4:
                     # probably a torch tensor with dimensions [batch, channels, y, x]
-                    tmp = arg.detach().cpu().numpy().transpose((2, 3, 1, 0))
+                    tmp = inp.detach().cpu().numpy().transpose((2, 3, 1, 0))
                     for imind in range(tmp.shape[3]):
                         images.append(tmp[:, :, :, imind])
                     del tmp
                 else:
                     raise Exception('torch tensors can at most have 4 dimensions')
 
-            elif isinstance(arg, np.ndarray):
-                if arg.ndim <= 3:
-                    images.append(np.atleast_3d(arg))
-                elif arg.ndim == 4:
+            elif isinstance(inp, np.ndarray):
+                if inp.ndim <= 3:
+                    images.append(np.atleast_3d(inp))
+                elif inp.ndim == 4:
                     # handle 4D numpy.ndarray input by slicing in 4th dimension
-                    for imind in range(arg.shape[3]):
-                        images.append(arg[:, :, :, imind])
+                    for imind in range(inp.shape[3]):
+                        images.append(inp[:, :, :, imind])
                 else:
                     raise Exception('input arrays can be at most 4D')
 
             else:
-                raise Exception('unexpected input type ' + str(type(arg)))
+                raise Exception('unexpected input type ' + str(type(inp)))
 
             if label is not None:
                 labels.append(label)
@@ -130,12 +166,12 @@ class iv(QMainWindow):
                 for img in arg:
                     handle_input(img, self.images, self.labels)
             elif isinstance(arg, dict):
-                for label, img in arg.items():
-                    handle_input(img, self.images, self.labels, label=label)
+                for img_label, img in arg.items():
+                    handle_input(img, self.images, self.labels, label=img_label)
             else:
                 handle_input(arg, self.images, self.labels)
 
-        self.imind = 0 # currently selected image
+        self.imind = 0  # currently selected image
         self.nims = len(self.images)
         self.scale = kwargs.get('scale', 1.)
         self.gamma = kwargs.get('gamma', 1.)
@@ -183,48 +219,59 @@ class iv(QMainWindow):
         self.font_size = kwargs.get('font_size', 12)
         self.font_color = kwargs.get('font_color', 1)
         self.labels = kwargs.get('labels', None)
-        if not self.labels is None:
+        if self.labels is not None:
             assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
                                                          % (len(self.labels), len(self.images))
-        
-        self.crop_bounds()
-        self.initUI()
-        
+
+        # spectral to RGB conversion stuff
+        # TODO: expose these
+        self.spec_wl0 = 380
+        self.spec_wl1 = 730
+        self.spec_cmf_names = list(colour.MSDS_CMFS.keys())
+        self.spec_illuminant_names = list(colour.SDS_ILLUMINANTS.keys())
+        self.spec_cmf_selected_name = 'CIE 1931 2 Degree Standard Observer'
+        self.spec_illuminant_selected_name = 'E'
+
+        # image display stuff
+        self.ih = None
+        self.xmins = []
+        self.xmaxs = []
+        self.ymins = []
+        self.ymaxs = []
+        self._compute_crop_bounds()
+        self._init_ui()
+
         self.ax.set_xticks([])
         self.ax.set_yticks([])
-        #plt.tight_layout()
-        self.updateImage()
+        self._display_image()
         if self.autoscaleEnabled:
             self.autoscale()
         else:
             self.uiLabelAutoscaleLower.setText('%f' % 0.)
             self.uiLabelAutoscaleUpper.setText('%f' % 1.)
-        self.cur_xlims = self.ih.axes.axis()[0 : 2]
-        self.cur_ylims = self.ih.axes.axis()[2 :]
+        self.cur_xlims = self.ih.axes.axis()[0:2]
+        self.cur_ylims = self.ih.axes.axis()[2:]
         
         self.mouse_down = 0
         self.x_start = 0
         self.y_start = 0
-        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.onclick)
-        self.cid = self.fig.canvas.mpl_connect('button_release_event', self.onrelease)
-        self.cid = self.fig.canvas.mpl_connect('motion_notify_event', self.onmotion)
-        self.cid = self.fig.canvas.mpl_connect('key_press_event', self.keyPressEvent)#onkeypress)
-        self.cid = self.fig.canvas.mpl_connect('key_release_event', self.keyReleaseEvent)#onkeyrelease)
-        self.cid = self.fig.canvas.mpl_connect('scroll_event', self.onscroll)
+        self.cid = self.fig.canvas.mpl_connect('button_press_event', self._onclick)
+        self.cid = self.fig.canvas.mpl_connect('button_release_event', self._onrelease)
+        self.cid = self.fig.canvas.mpl_connect('motion_notify_event', self._onmotion)
+        self.cid = self.fig.canvas.mpl_connect('key_press_event', self.keyPressEvent)
+        self.cid = self.fig.canvas.mpl_connect('key_release_event', self.keyReleaseEvent)
+        self.cid = self.fig.canvas.mpl_connect('scroll_event', self._onscroll)
         self.alt = False
         self.control = False
         self.shift = False
         self.prev_delta_x = 0
         self.prev_delta_y = 0
-        #plt.show(block=True)
-        #plt.pause(10)
-        #plt.show(block=False)
 
-        self.ofname = '' # previous saved image path
+        self.ofname = ''  # previous saved image path
         
         self.show()
 
-    def crop_bounds(self):
+    def _compute_crop_bounds(self):
         # pre-compute cropping bounds (tight bounding box around non-zero pixels)
         res = crop_bounds(self.images, apply=False, crop_global=self.crop_global, background=self.crop_background)
         self.xmins = res['xmins']
@@ -232,166 +279,95 @@ class iv(QMainWindow):
         self.ymins = res['ymins']
         self.ymaxs = res['ymaxs']
 
-    def initUI(self):
-        #self.fig = plt.figure(figsize = (10, 10))
-        #self.ax = plt.axes([0,0,1,1])#, self.gs[0])
-        
+    def _init_ui(self):
         self.widget = QWidget()
-        
+
         self.fig = Figure(dpi=100)
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.widget)
-        
-        #self.ax = Axes(fig=self.fig, rect=[0,0,1,1])
+
         self.ax = self.fig.add_subplot(111)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
+        self.ax.set_aspect(1, 'datalim')
         self.ax.set_anchor('NW')
         self.ax.set_clip_on(False)
         self.ax.set_axis_off()
-        try:
-            self.ax.get_yaxis().set_inverted(True)
-        except Exception:
-            self.ax.invert_yaxis()
+        self._invert_y()
 
         width = 200
+
+        def _add_widget(w, widget, label, signal=None, callback=None, value=None):
+            widget = widget(None if widget == QComboBox else str(value) if label is None else str(label))
+            widget.setMaximumWidth(w)
+            if label is not None and value is not None:
+                if isinstance(widget, QCheckBox):
+                    widget.setTristate(False)
+                    widget.setCheckState(2 if value else 0)
+            if isinstance(widget, QComboBox):
+                widget.addItems(value)
+            if callback is not None:
+                getattr(widget, signal).connect(lambda *args: callback(widget, *args))
+            return widget
+
         self.uiLabelModifiers = QLabel('')
         self.uiLabelModifiers.setMaximumWidth(width)
-        self.uiLEScale = QLineEdit(str(self.scale))
-        self.uiLEScale.setMaximumWidth(width)
-        self.uiLEScale.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEScale))
-        self.uiLEGamma = QLineEdit(str(self.gamma))
-        self.uiLEGamma.setMaximumWidth(width)
-        self.uiLEGamma.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEGamma))
-        self.uiLEOffset = QLineEdit(str(self.offset))
-        self.uiLEOffset.setMaximumWidth(width)
-        self.uiLEOffset.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEOffset))
-        self.uiCBAutoscaleLower = QCheckBox('lower')
-        self.uiCBAutoscaleLower.setMaximumWidth(width // 2)
-        self.uiCBAutoscaleLower.setCheckState(self.autoscaleLower)
-        self.uiCBAutoscaleLower.setTristate(False)
-        self.uiCBAutoscaleLower.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleLower, state))
-        self.uiCBAutoscaleUpper = QCheckBox('upper')
-        self.uiCBAutoscaleUpper.setMaximumWidth(width // 2)
-        self.uiCBAutoscaleUpper.setCheckState(self.autoscaleUpper)
-        self.uiCBAutoscaleUpper.setTristate(False)
-        self.uiCBAutoscaleUpper.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUpper, state))
-        form_autoscale = QHBoxLayout()
-        form_autoscale.addWidget(self.uiCBAutoscaleLower)
-        form_autoscale.addWidget(self.uiCBAutoscaleUpper)
-        self.uiLEAutoscalePrctileLower = QLineEdit(str(self.autoscalePrctiles[0]))
-        self.uiLEAutoscalePrctileLower.setMaximumWidth(width // 2)
-        self.uiLEAutoscalePrctileLower.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEAutoscalePrctileLower))
-        self.uiLEAutoscalePrctileUpper = QLineEdit(str(self.autoscalePrctiles[1]))
-        self.uiLEAutoscalePrctileUpper.setMaximumWidth(width // 2)
-        self.uiLEAutoscalePrctileUpper.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEAutoscalePrctileUpper))
-        form_percentiles = QHBoxLayout()
-        form_percentiles.addWidget(self.uiLEAutoscalePrctileLower)
-        form_percentiles.addWidget(self.uiLEAutoscalePrctileUpper)
-        self.uiLabelAutoscaleLower = QLabel('%f' % 0.)
-        self.uiLabelAutoscaleLower.setMaximumWidth(width // 2)
-        self.uiLabelAutoscaleUpper = QLabel('%f' % 1.)
-        self.uiLabelAutoscaleUpper.setMaximumWidth(width // 2)
-        form_bounds = QHBoxLayout()
-        form_bounds.addWidget(self.uiLabelAutoscaleLower)
-        form_bounds.addWidget(self.uiLabelAutoscaleUpper)
-        self.uiCBAutoscaleUsePrctiles = QCheckBox('prcntiles')
-        self.uiCBAutoscaleUsePrctiles.setMaximumWidth(width // 2)
-        self.uiCBAutoscaleUsePrctiles.setCheckState(self.autoscaleUsePrctiles)
-        self.uiCBAutoscaleUsePrctiles.setTristate(False)
-        self.uiCBAutoscaleUsePrctiles.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleUsePrctiles, state))
-        self.uiCBAutoscaleGlobal = QCheckBox('global')
-        self.uiCBAutoscaleGlobal.setMaximumWidth(width // 2)
-        self.uiCBAutoscaleGlobal.setCheckState(self.autoscaleGlobal)
-        self.uiCBAutoscaleGlobal.setTristate(False)
-        self.uiCBAutoscaleGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAutoscaleGlobal, state))
-        form_autoscale2 = QHBoxLayout()
-        form_autoscale2.addWidget(self.uiCBAutoscaleUsePrctiles)
-        form_autoscale2.addWidget(self.uiCBAutoscaleGlobal)
+        self.uiLEScale = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.scale)
+        self.uiLEGamma = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.gamma)
+        self.uiLEOffset = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.offset)
+        self.uiCBAutoscaleLower = _add_widget(width // 2, QCheckBox, 'lower', 'stateChanged', self._callback_check_box, self.autoscaleLower)
+        self.uiCBAutoscaleUpper = _add_widget(width // 2, QCheckBox, 'upper', 'stateChanged', self._callback_check_box, self.autoscaleUpper)
+        self.uiLEAutoscalePrctileLower = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.autoscalePrctiles[0])
+        self.uiLEAutoscalePrctileUpper = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.autoscalePrctiles[1])
+        self.uiLabelAutoscaleLower = _add_widget(width // 2, QLabel, '%f' % 0.)
+        self.uiLabelAutoscaleUpper = _add_widget(width // 2, QLabel, '%f' % 1.)
+        self.uiCBAutoscaleUsePrctiles = _add_widget(width // 2, QCheckBox, 'prcntiles', 'stateChanged', self._callback_check_box, self.autoscaleUsePrctiles)
+        self.uiCBAutoscaleGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, self.autoscaleGlobal)
         if self.nims > 1:
-            self.uiCBCollageActive = QCheckBox('enable')
-            self.uiCBCollageActive.setMaximumWidth(width // 2)
-            self.uiCBCollageActive.setCheckState(self.collageActive)
-            self.uiCBCollageActive.setTristate(False)
-            self.uiCBCollageActive.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageActive, state))
-            self.uiCBCollageTranspose = QCheckBox('transp.')
-            self.uiCBCollageTranspose.setMaximumWidth(width // 2)
-            self.uiCBCollageTranspose.setCheckState(2 if self.collageTranspose else self.collageTransposeIms)
-            self.uiCBCollageTranspose.setTristate(True)
-            self.uiCBCollageTranspose.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTranspose, state))
-            self.uiCBCollageTransposeIms = QCheckBox('transp. ims.')
-            self.uiCBCollageTransposeIms.setMaximumWidth(width // 2)
-            self.uiCBCollageTransposeIms.setCheckState(2 if self.collageTranspose else self.collageTransposeIms)
-            self.uiCBCollageTransposeIms.setTristate(True)
-            self.uiCBCollageTransposeIms.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCollageTransposeIms, state))
-            form_collage = QHBoxLayout()
-            form_collage.addWidget(self.uiCBCollageActive)
-            form_collage.addWidget(self.uiCBCollageTranspose)
-            self.uiLECollageNr = QLineEdit(str(self.collage_nr))
-            self.uiLECollageNr.setMaximumWidth(width // 2)
-            self.uiLECollageNr.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNr))
-            self.uiLECollageNc = QLineEdit(str(self.collage_nc))
-            self.uiLECollageNc.setMaximumWidth(width // 2)
-            self.uiLECollageNc.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageNc))
-            form_collage2 = QHBoxLayout()
-            form_collage2.addWidget(self.uiLECollageNr)
-            form_collage2.addWidget(self.uiLECollageNc)
-            self.uiLECollageBW = QLineEdit(str(self.collage_border_width))
-            self.uiLECollageBW.setMaximumWidth(width // 2)
-            self.uiLECollageBW.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBW))
-            self.uiLECollageBV = QLineEdit(str(self.collage_border_value))
-            self.uiLECollageBV.setMaximumWidth(width // 2)
-            self.uiLECollageBV.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLECollageBV))
-            form_collage3 = QHBoxLayout()
-            form_collage3.addWidget(self.uiLECollageBW)
-            form_collage3.addWidget(self.uiLECollageBV)
-        self.uiCBCrop = QCheckBox('enable')
-        self.uiCBCrop.setMaximumWidth(width // 2)
-        self.uiCBCrop.setCheckState(self.crop)
-        self.uiCBCrop.setTristate(False)
-        self.uiCBCrop.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCrop, state))
-        self.uiCBCropGlobal = QCheckBox('global')
-        self.uiCBCropGlobal.setMaximumWidth(width // 2)
-        self.uiCBCropGlobal.setCheckState(self.crop_global)
-        self.uiCBCropGlobal.setTristate(False)
-        self.uiCBCropGlobal.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBCropGlobal, state))
-        form_crop = QHBoxLayout()
-        form_crop.addWidget(self.uiCBCrop)
-        form_crop.addWidget(self.uiCBCropGlobal)
-        self.uiLECropBackground = QLineEdit(str(self.crop_background))
-        self.uiLECropBackground.setMaximumWidth(width)
-        self.uiLECropBackground.editingFinished.connect(lambda state: self.callbackLineEdit(self.uiLECropBackground))
-        self.uiCBAnnotate = QCheckBox('enable')
-        self.uiCBAnnotate.setMaximumWidth(width // 2)
-        self.uiCBAnnotate.setCheckState(self.annotate)
-        self.uiCBAnnotate.setTristate(False)
-        self.uiCBAnnotate.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotate, state))
-        self.uiCBAnnotateNumbers = QCheckBox('numbers')
-        self.uiCBAnnotateNumbers.setMaximumWidth(width // 2)
-        self.uiCBAnnotateNumbers.setCheckState(self.annotate_numbers)
-        self.uiCBAnnotateNumbers.setTristate(False)
-        self.uiCBAnnotateNumbers.stateChanged.connect(lambda state: self.callbackCheckBox(self.uiCBAnnotateNumbers, state))
-        form_annotate = QHBoxLayout()
-        form_annotate.addWidget(self.uiCBAnnotate)
-        form_annotate.addWidget(self.uiCBAnnotateNumbers)
-        self.uiLEFontSize = QLineEdit(str(self.font_size))
-        self.uiLEFontSize.setMaximumWidth(width)
-        self.uiLEFontSize.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontSize))
-        self.uiLEFontColor = QLineEdit(str(self.font_color))
-        self.uiLEFontColor.setMaximumWidth(width)
-        self.uiLEFontColor.editingFinished.connect(lambda: self.callbackLineEdit(self.uiLEFontColor))
+            self.uiCBCollageActive = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.collageActive)
+            self.uiCBCollageTranspose = _add_widget(width // 2, QCheckBox, 'transp.', 'stateChanged', self._callback_check_box, self.collageTranspose)
+            self.uiCBCollageTransposeIms = _add_widget(width // 2, QCheckBox, 'transp. ims.', 'stateChanged', self._callback_check_box, self.collageTransposeIms)
+            self.uiLECollageNr = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_nr)
+            self.uiLECollageNc = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_nc)
+            self.uiLECollageBW = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_width)
+            self.uiLECollageBV = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_value)
+        self.uiCBCrop = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.crop)
+        self.uiCBCropGlobal = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.crop_global)
+        self.uiLECropBackground = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.crop_background)
+        self.uiCBAnnotate = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.annotate)
+        self.uiCBAnnotateNumbers = _add_widget(width // 2, QCheckBox, 'numbers', 'stateChanged', self._callback_check_box, self.annotate_numbers)
+        self.uiLEFontSize = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_size)
+        self.uiLEFontColor = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_color)
 
-        def line():
-            l = QFrame()
-            # l.setGeometry(QRect(320, 150, 118, 3))
-            l.setFixedHeight(3)
-            l.setFrameShape(QFrame.HLine)
-            l.setFrameShadow(QFrame.Sunken)
-            return l
+        # add spectral to RGB conversion options
+        self.uiCBSpecCMFs = _add_widget(width, QComboBox, None, 'activated', self._callback_combobox, self.spec_cmf_names)
+        self.uiCBSpecCMFs.setCurrentIndex(np.where([name == self.spec_cmf_selected_name for name in self.spec_cmf_names])[0][0])
+        self.uiCBSpecIlluminants = _add_widget(width, QComboBox, None, 'activated', self._callback_combobox, self.spec_illuminant_names)
+        self.uiCBSpecIlluminants.setCurrentIndex(np.where([name == self.spec_illuminant_selected_name for name in self.spec_illuminant_names])[0][0])
+        self.uiLESpecWL0 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl0)
+        self.uiLESpecWL1 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl1)
 
-        # form = QFormLayout()
+        self.uiLabelInfo = QLabel('')
+        self.uiLabelInfo.setMaximumWidth(width)
+        self._update_info()
+
+        # layout
         form = QGridLayout()
         row = [0]
-        def addRow(label, widget=None):
+
+        def _multicolumn(*widgets):
+            hbox = QHBoxLayout()
+            for widget in widgets:
+                hbox.addWidget(widget)
+            return hbox
+
+        def _hdiv():
+            frame = QFrame()
+            frame.setFixedHeight(3)
+            frame.setFrameShape(QFrame.HLine)
+            frame.setFrameShadow(QFrame.Sunken)
+            return frame
+
+        def _add_row(label, widget=None):
             if widget is None:
                 form.addWidget(label, row[0], 0, 1, 2)
             else:
@@ -401,56 +377,61 @@ class iv(QMainWindow):
                 else:
                     form.addLayout(widget, row[0], 1, 1, 1)
             row[0] += 1
-        addRow(QLabel('modifiers:'), self.uiLabelModifiers)
-        addRow(QLabel('scale:'), self.uiLEScale)
-        addRow(QLabel('gamma:'), self.uiLEGamma)
-        addRow(QLabel('offset:'), self.uiLEOffset)
-        addRow(line())
-        addRow(QLabel('autoScale:'), form_autoscale)
-        addRow(QLabel(''), form_autoscale2)
-        addRow(QLabel('percentile:'), form_percentiles)
-        addRow(QLabel('bounds:'), form_bounds)
-        addRow(line())
-        if self.nims > 1:
-            addRow(QLabel('collage:'), form_collage)
-            addRow(QLabel('per img:'), self.uiCBCollageTransposeIms)
-            addRow(QLabel('NR x NC:'), form_collage2)
-            addRow(QLabel('BW x BV:'), form_collage3)
-            addRow(line())
-        addRow(QLabel('crop:'), form_crop)
-        addRow(QLabel('crop bgrnd:'), self.uiLECropBackground)
-        addRow(line())
-        addRow(QLabel('annotate:'), form_annotate)
-        addRow(QLabel('font size:'), self.uiLEFontSize)
-        addRow(QLabel('font value:'), self.uiLEFontColor)
-        addRow(line())
 
+        _add_row(QLabel('modifiers:'), self.uiLabelModifiers)
+        _add_row(QLabel('scale:'), self.uiLEScale)
+        _add_row(QLabel('gamma:'), self.uiLEGamma)
+        _add_row(QLabel('offset:'), self.uiLEOffset)
+        _add_row(_hdiv())
+        _add_row(QLabel('autoScale:'), _multicolumn(self.uiCBAutoscaleLower, self.uiCBAutoscaleUpper))
+        _add_row(QLabel(''), _multicolumn(self.uiCBAutoscaleUsePrctiles, self.uiCBAutoscaleGlobal))
+        _add_row(QLabel('percentile:'), _multicolumn(self.uiLEAutoscalePrctileLower, self.uiLEAutoscalePrctileUpper))
+        _add_row(QLabel('bounds:'), _multicolumn(self.uiLabelAutoscaleLower, self.uiLabelAutoscaleUpper))
+        _add_row(_hdiv())
+        if self.nims > 1:
+            _add_row(QLabel('collage:'), _multicolumn(self.uiCBCollageActive, self.uiCBCollageTranspose))
+            _add_row(QLabel('per img:'), self.uiCBCollageTransposeIms)
+            _add_row(QLabel('NR x NC:'), _multicolumn(self.uiLECollageNr, self.uiLECollageNc))
+            _add_row(QLabel('BW x BV:'), _multicolumn(self.uiLECollageBW, self.uiLECollageBV))
+            _add_row(_hdiv())
+        _add_row(QLabel('crop:'), _multicolumn(self.uiCBCrop, self.uiCBCropGlobal))
+        _add_row(QLabel('crop bgrnd:'), self.uiLECropBackground)
+        _add_row(_hdiv())
+        _add_row(QLabel('annotate:'), _multicolumn(self.uiCBAnnotate, self.uiCBAnnotateNumbers))
+        _add_row(QLabel('font size:'), self.uiLEFontSize)
+        _add_row(QLabel('font value:'), self.uiLEFontColor)
+        _add_row(_hdiv())
+        _add_row(QLabel('info:'), self.uiLabelInfo)
+        _add_row(_hdiv())
+
+        any_spectral = np.any([im.ndim > 2 and im.shape[2] > 3 for im in self.images])
+        if any_spectral:
+            _add_row(QLabel('Illum.'), self.uiCBSpecIlluminants)
+            _add_row(QLabel('CMF'), self.uiCBSpecCMFs)
+            _add_row(QLabel('WLs'), _multicolumn(self.uiLESpecWL0, self.uiLESpecWL1))
+            _add_row(_hdiv())
+
+        # fixed "footer" at bottom right with copy & save buttons
         width_bottom = width + 100
-        self.uiPBCopyClipboard = QPushButton('&copy')
-        self.uiPBCopyClipboard.setMinimumWidth(width_bottom // 2)
-        self.uiPBCopyClipboard.setMaximumWidth(width_bottom // 2)
-        self.uiPBCopyClipboard.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboard))
-        self.uiPBCopyClipboardZoomed = QPushButton('copy &zoomed')
-        self.uiPBCopyClipboardZoomed.setMinimumWidth(width_bottom // 2)
-        self.uiPBCopyClipboardZoomed.setMaximumWidth(width_bottom // 2)
-        self.uiPBCopyClipboardZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBCopyClipboardZoomed))
-        self.uiPBSave = QPushButton('&save')
-        self.uiPBSave.setMinimumWidth(width_bottom // 2)
-        self.uiPBSave.setMaximumWidth(width_bottom // 2)
-        self.uiPBSave.clicked.connect(lambda: self.callbackPushButton(self.uiPBSave))
-        self.uiPBSaveZoomed = QPushButton('sa&ve zoomed')
-        self.uiPBSaveZoomed.setMinimumWidth(width_bottom // 2)
-        self.uiPBSaveZoomed.setMaximumWidth(width_bottom // 2)
-        self.uiPBSaveZoomed.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveZoomed))
-        self.uiPBSaveCanvas = QPushButton('s&ave canvas')
-        self.uiPBSaveCanvas.setMinimumWidth(width_bottom // 2)
-        self.uiPBSaveCanvas.setMaximumWidth(width_bottom // 2)
-        self.uiPBSaveCanvas.clicked.connect(lambda: self.callbackPushButton(self.uiPBSaveCanvas))
+        self.uiPBPrevImg = _add_widget(width_bottom // 2, QPushButton, '&prev', 'clicked', self._callback_push_button)
+        self.uiPBNextImg = _add_widget(width_bottom // 2, QPushButton, '&next', 'clicked', self._callback_push_button)
+        self.uiPBCopyClipboard = _add_widget(width_bottom // 2, QPushButton, '&copy', 'clicked', self._callback_push_button)
+        self.uiPBCopyClipboardZoomed = _add_widget(width_bottom // 2, QPushButton, 'copy &zoomed', 'clicked', self._callback_push_button)
+        self.uiPBSave = _add_widget(width_bottom // 2, QPushButton, '&save', 'clicked', self._callback_push_button)
+        self.uiPBSaveZoomed = _add_widget(width_bottom // 2, QPushButton, 'sa&ve zoomed', 'clicked', self._callback_push_button)
+        self.uiPBSaveCanvas = _add_widget(width_bottom // 2, QPushButton, 's&ave canvas', 'clicked', self._callback_push_button)
 
         row_bottom = 0
         form_bottom = QGridLayout()
+        form_bottom.addWidget(self.uiPBPrevImg, row_bottom, 0)
+        form_bottom.addWidget(self.uiPBNextImg, row_bottom, 1)
+        row_bottom += 1
+        form_bottom.addWidget(_hdiv(), row_bottom, 0, 1, 2)
+        row_bottom += 1
         form_bottom.addWidget(self.uiPBCopyClipboard, row_bottom, 0)
         form_bottom.addWidget(self.uiPBCopyClipboardZoomed, row_bottom, 1)
+        row_bottom += 1
+        form_bottom.addWidget(_hdiv(), row_bottom, 0, 1, 2)
         row_bottom += 1
         form_bottom.addWidget(self.uiPBSave, row_bottom, 0)
         form_bottom.addWidget(self.uiPBSaveZoomed, row_bottom, 1)
@@ -463,11 +444,11 @@ class iv(QMainWindow):
         vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
         vbox.addLayout(form_bottom)
         
-        hbox = QHBoxLayout()
-        hbox.addWidget(self.canvas)
-        hbox.addLayout(vbox)
+        hbox_canvas = QHBoxLayout()
+        hbox_canvas.addWidget(self.canvas)
+        hbox_canvas.addLayout(vbox)
         
-        self.widget.setLayout(hbox)
+        self.widget.setLayout(hbox_canvas)
         self.setCentralWidget(self.widget)
         
         # make image canvas expand with window
@@ -478,32 +459,28 @@ class iv(QMainWindow):
         
         self.ih = self.ax.imshow(np.zeros(self.get_img().shape[:2] + (3,)), origin='upper')
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
-        try:
-            self.ax.get_yaxis().set_inverted(True)
-        except Exception:
-            self.ax.invert_yaxis()
+        self._invert_y()
 
         # keyboard shortcuts
-        #scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
-        #scaleShortcut.activated.connect(self.autoscale)
-        closeShortcut = QShortcut(QKeySequence('Escape'), self.widget)
-        closeShortcut.activated.connect(self.close)
+        # scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
+        # scaleShortcut.activated.connect(self.autoscale)
+        close_shortcut = QShortcut(QKeySequence('Escape'), self.widget)
+        close_shortcut.activated.connect(self.close)
         QShortcut(QKeySequence('a'), self.widget).activated.connect(self.autoscale)
-        QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self.toggleautoscaleUsePrctiles)
+        QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self._toggle_autoscale_use_prctiles)
 
-    #@MyPyQtSlot("bool")
-    def callbackLineEdit(self, ui):
+    def _callback_line_edit(self, ui, *args):
         try:
             tmp = float(ui.text())
         except:
             return
         
         if ui == self.uiLEScale:
-            self.setScale(tmp)
+            self.set_scale(tmp)
         elif ui == self.uiLEGamma:
-            self.setGamma(tmp)
+            self.set_gamma(tmp)
         elif ui == self.uiLEOffset:
-            self.setOffset(tmp)
+            self.set_offset(tmp)
         elif ui == self.uiLEAutoscalePrctileLower:
             self.autoscalePrctiles[0] = np.clip(tmp, 0., 50.)
             self.autoscale()
@@ -512,29 +489,35 @@ class iv(QMainWindow):
             self.autoscale()
         elif hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
             self.collage_nr = int(tmp)
-            self.collage()
+            self._display_collage()
         elif hasattr(self, 'uiLECollageNc') and ui == self.uiLECollageNc:
             self.collage_nc = int(tmp)
-            self.collage()
+            self._display_collage()
         elif hasattr(self, 'uiLECollageBW') and ui == self.uiLECollageBW:
             self.collage_border_width = int(tmp)
-            self.collage()
+            self._display_collage()
         elif hasattr(self, 'uiLECollageBV') and ui == self.uiLECollageBV:
             self.collage_border_value = float(tmp)
-            self.collage()
+            self._display_collage()
         elif ui == self.uiLEFontSize:
             self.font_size = int(tmp)
-            self.updateImage()
+            self._display_image()
         elif ui == self.uiLEFontColor:
             self.font_color = tmp
-            self.updateImage()
+            self._display_image()
         elif ui == self.uiLECropBackground:
             self.crop_background = tmp
-            self.crop_bounds()
-            self.updateImage()
+            self._compute_crop_bounds()
+            self._display_image()
+        elif hasattr(self, 'uiLESpecWL0') and ui == self.uiLESpecWL0:
+            self.spec_wl0 = tmp
+            self._display_image()
+        elif hasattr(self, 'uiLESpecWL1') and ui == self.uiLESpecWL1:
+            self.spec_wl1 = tmp
+            self._display_image()
 
-    #@MyPyQtSlot("bool")
-    def callbackCheckBox(self, ui, state):
+    def _callback_check_box(self, ui, state):
+        print(ui, state)
         if ui == self.uiCBAutoscaleUsePrctiles:
             self.autoscaleUsePrctiles = bool(state)
             if self.autoscaleEnabled:
@@ -555,28 +538,37 @@ class iv(QMainWindow):
                 self.autoscale()
         elif hasattr(self, 'uiCBCollageActive') and ui == self.uiCBCollageActive:
             self.collageActive = bool(state)
-            self.updateImage()
+            self._display_image()
         elif hasattr(self, 'uiCBCollageTranspose') and ui == self.uiCBCollageTranspose:
             self.collageTranspose = bool(state)
-            self.updateImage()
+            self._display_image()
         elif hasattr(self, 'uiCBCollageTransposeIms') and ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
-            self.updateImage()
+            self._display_image()
         elif ui == self.uiCBCrop:
             self.crop = bool(state)
-            self.updateImage()
+            self._display_image()
         elif ui == self.uiCBCropGlobal:
             self.crop_global = bool(state)
-            self.crop_bounds()
-            self.updateImage()
+            self._compute_crop_bounds()
+            self._display_image()
         elif ui == self.uiCBAnnotate:
             self.annotate = bool(state)
-            self.updateImage()
+            print('annotate set to ' + str(self.annotate), 'type(state): ', type(state), ', state: ', state)
+            self._display_image()
         elif ui == self.uiCBAnnotateNumbers:
             self.annotate_numbers = bool(state)
-            self.updateImage()
+            self._display_image()
 
-    def callbackPushButton(self, ui):
+    def _callback_combobox(self, ui, index):
+        if ui == self.uiCBSpecCMFs:
+            self.spec_cmf_selected_name = self.uiCBSpecCMFs.currentText()
+            self._display_image()
+        elif ui == self.uiCBSpecIlluminants:
+            self.spec_illuminant_selected_name = self.uiCBSpecIlluminants.currentText()
+            self._display_image()
+
+    def _callback_push_button(self, ui, *args):
         if ui == self.uiPBCopyClipboard:
             self.copy_to_clipboard()
         elif ui == self.uiPBCopyClipboardZoomed:
@@ -587,68 +579,18 @@ class iv(QMainWindow):
             self.save(zoomed=True)
         elif ui == self.uiPBSaveCanvas:
             self.save(canvas=True)
-    
-    '''
-    @MyPyQtSlot()
-    def slot_text(self):#, ui=None):
-        ui = self.uiLEScale
-        if ui == self.uiLEScale:
-            print('scale: ' + str(self.scale))
-            tmp = self.scale
-            try:
-                tmp = float(self.uiLEScale.text())
-            except ValueError:
-                print('error')
-                self.uiLEScale.setText(str(self.scale))
-            self.scale = tmp
-            self.updateImage()
-        elif ui == self.uiLEGamma:
-            print('gamma')
-        elif ui == self.uiLEOffset:
-            print('offset')
-    
-    def on_draw(self):
-        """ Redraws the figure
-        """
-        #self.axes.grid(self.grid_cb.isChecked())
-        self.canvas.draw()
-    '''
-    
-    def print_usage(self):
-        print(' ')
-        print('hotkeys: ')
-        print('a: trigger autoscale')
-        print('A: toggle autoscale of [min, max] or ')
-        print('   [prctile_low, prctile_high] -> [0, 1], ')
-        print('   prctiles can be changed via ctrl+shift+wheel')
-        print('c: toggle autoscale on image change')
-        print('G: reset gamma to 1')
-        print('L: create collage by arranging all images in a ')
-        print('   rectangular manner')
-        print('O: reset offset to 0')
-        print('p: toggle per image auto scale limit computations ')
-        print('   (vs. globally over all images)')
-        print('S: reset scale to 1')
-        print('Z: reset zoom to 100%')
-        print('left / right:         switch to next / previous image')
-        print('page down / up:       go through images in ~10% steps')
-        print('')
-        print('wheel:                zoom in / out (inside image axes)')
-        print('wheel:                switch to next / previous image')
-        print('                      (outside image axes)')
-        print('ctrl + wheel:         scale up / down')
-        print('shift + wheel:        gamma up / down')
-        print('ctrl + shift + wheel: increase / decrease autoscale')
-        print('                      percentiles')
-        print('left mouse dragged:   pan image')
-        print('')
+        elif ui == self.uiPBPrevImg:
+            self.switch_image(-1)
+        elif ui == self.uiPBNextImg:
+            self.switch_image(1)
     
     def get_img(self, i=None, tonemap=False, decorate=False):
+        """return i-th image, optionally tonemapped and decorated"""
         if i is None:
             i = self.imind
         im = self.images[i]
         if self.crop:
-            im = im[self.ymins[i] : self.ymaxs[i], self.xmins[i] : self.xmaxs[i], :]
+            im = im[self.ymins[i]:self.ymaxs[i], self.xmins[i]:self.xmaxs[i], :]
         if tonemap:
             im = self.tonemap(im)
         if decorate and self.annotate:
@@ -656,14 +598,15 @@ class iv(QMainWindow):
         return im
     
     def get_imgs(self, tonemap=False, decorate=False):
+        """return all images in a list, optionally tonemapped and decorated"""
         return [self.get_img(ind, tonemap=tonemap, decorate=decorate) for ind in range(len(self.images))]
 
     def decorate(self, im, i=None, label=''):
+        """add annotation to an image"""
         if i is None:
             i = self.imind
         if self.annotate:
             from pysmtb.utils import annotate_image
-            label = ''
             if self.annotate_numbers:
                 label += str(i) + ' '
             if self.labels is not None:
@@ -671,17 +614,17 @@ class iv(QMainWindow):
             if im.shape[2] == 3:
                 im = annotate_image(im, label, font_size=self.font_size, font_color=self.font_color)
             else:
-                im = annotate_image(im[:,:,0], label, font_size=self.font_size, font_color=self.font_color, stroke_color=np.clip(1.-self.font_color, 0, 1))
+                im = annotate_image(im[:, :, 0], label, font_size=self.font_size, font_color=self.font_color, stroke_color=np.clip(1.-self.font_color, 0, 1))
         return im
     
     def autoscale(self):
-        # autoscale between user-selected percentiles
+        """autoscale between user-selected percentiles"""
         if self.autoscaleUsePrctiles:
             if self.autoscaleGlobal:
                 limits = [np.percentile(image, self.autoscalePrctiles)
                           for image in self.get_imgs(tonemap=False, decorate=False)]
                 lower = np.min([lims[0] for lims in limits])
-                upper= np.max([lims[1] for lims in limits])
+                upper = np.max([lims[1] for lims in limits])
             else:
                 lower, upper = np.percentile(self.get_img(tonemap=False, decorate=False), self.autoscalePrctiles)
         else:
@@ -694,17 +637,18 @@ class iv(QMainWindow):
                 lower = np.min(im)
                 upper = np.max(im)
         if self.autoscaleLower:
-            self.setOffset(lower, False)
+            self.set_offset(lower, False)
             self.uiLabelAutoscaleLower.setText('%f' % lower)
         if self.autoscaleUpper:
-            self.setScale(1. / (upper - lower), True)
+            self.set_scale(1. / (upper - lower), True)
             self.uiLabelAutoscaleUpper.setText('%f' % upper)
 
-    def toggleautoscaleUsePrctiles(self):
+    def _toggle_autoscale_use_prctiles(self):
         self.autoscaleUsePrctiles = not self.autoscaleUsePrctiles
         self.autoscale()
 
-    def collage(self):
+    def _display_collage(self):
+        # arrange all images in a collage and display them
         if self.collage_nr * self.collage_nc < self.nims:
             nc = int(np.ceil(np.sqrt(self.nims)))
             nr = int(np.ceil(self.nims / nc))
@@ -725,11 +669,11 @@ class iv(QMainWindow):
         ims = self.get_imgs(tonemap=True, decorate=True)
         h = np.max([im.shape[0] for im in ims])
         w = np.max([im.shape[1] for im in ims])
-        numChans = np.max([im.shape[2] for im in ims])
-        ims = [pad(im, new_width=w, new_height=h, new_num_channels=numChans) for im in ims]
-        ims += [np.zeros((h, w, numChans))] * padding
+        num_channels = np.max([im.shape[2] for im in ims])
+        ims = [pad(im, new_width=w, new_height=h, new_num_channels=num_channels) for im in ims]
+        ims += [self.collage_border_value * np.ones((h, w, num_channels))] * padding
         coll = np.stack(ims, axis=3)
-        coll = np.reshape(coll, (h, w, numChans, nr, nc))
+        coll = np.reshape(coll, (h, w, num_channels, nr, nc))
         # 0  1  2   3   4
         # y, x, ch, ro, co
         if self.collage_border_width:
@@ -762,44 +706,40 @@ class iv(QMainWindow):
                 dim1 = w
                 #                          nc h  nr w  ch
                 coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((dim0 + self.collage_border_width) * nim0, (dim1 + self.collage_border_width) * nim1, numChans))
-        
-        #self.ih.set_data(self.tonemap(coll))
+        coll = np.reshape(coll, ((dim0 + self.collage_border_width) * nim0, (dim1 + self.collage_border_width) * nim1, num_channels))
+
         self.ax.clear()
         if coll.dtype == np.float16:
             coll = coll.astype(np.float32)
         self.ih = self.ax.imshow(coll, origin='upper')
         
         height, width = self.ih.get_size()
-        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
-        self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
-        try:
-            self.ax.get_yaxis().set_inverted(True)
-        except Exception:
-            self.ax.invert_yaxis()
+        limits = (-0.5, width - 0.5, -0.5, height - 0.5)
+        self.ax.set(xlim=limits[0:2], ylim=limits[2:4])
+        self._invert_y()
         self.fig.canvas.draw()
-    
-    def switch_to_single_image(self):
+
+    def _switch_to_single_image(self):
+        # reset canvas to show a single image instead of a collage
         if self.collageActive:
             self.ax.clear()
             self.ih = self.ax.imshow(np.zeros(self.get_img(tonemap=True).shape[:3]), origin='upper')
         self.collageActive = False
         
     def reset_zoom(self):
+        """reset zoom factor to 1, i.e. show the entire image"""
         height, width = self.ih.get_size()
-        lims = (-0.5, width - 0.5, -0.5, height - 0.5)
-        self.ih.axes.axis(lims)
+        limits = (-0.5, width - 0.5, -0.5, height - 0.5)
+        self.ih.axes.axis(limits)
         self.ax.set_position(Bbox([[0, 0], [1, 1]]))
-        try:
-            self.ax.get_yaxis().set_inverted(True)
-        except Exception:
-            self.ax.invert_yaxis()
+        self._invert_y()
         self.fig.canvas.draw()
         
     def zoom(self, pos, factor):
-        lims = self.ih.axes.axis()
-        xlim = lims[0 : 2]
-        ylim = lims[2 : ]
+        """zoom on specific position in image by specified zoom factor"""
+        limits = self.ih.axes.axis()
+        xlim = limits[0:2]
+        ylim = limits[2:]
         
         # compute interval lengths left, right, below and above cursor
         left = pos[0] - xlim[0]
@@ -824,17 +764,15 @@ class iv(QMainWindow):
         
         # update axes
         if xlim[0] != xlim[1] and ylim[0] != ylim[1]:
-            lims = (xlim[0], xlim[1], ylim[0], ylim[1])
-            self.ih.axes.axis(lims)
-            try:
-                self.ax.get_yaxis().set_inverted(True)
-            except Exception:
-                self.ax.invert_yaxis()
+            limits = (xlim[0], xlim[1], ylim[0], ylim[1])
+            self.ih.axes.axis(limits)
+            self._invert_y()
             self.ax.set_position(Bbox([[0, 0], [1, 1]]))
             self.fig.canvas.draw()
         return
 
     def overlay_pixel_values(self):
+        # display overlay at cursor position showing numeric pixel values
         kids = self.ax.get_children()
         for kid in kids:
             if isinstance(kid, matplotlib.text.Text):
@@ -857,6 +795,8 @@ class iv(QMainWindow):
         self.fig.canvas.draw()
 
     def tonemap(self, im):
+        """apply simple scaling & gamma based tonemapping to HDR image, convert spectral to RGB"""
+        # TODO: add color mapping for single channel images
         if isinstance(im, np.matrix):
             im = np.array(im)
         if im.shape[2] == 1:
@@ -865,12 +805,37 @@ class iv(QMainWindow):
             im = np.concatenate((im, np.zeros((im.shape[0], im.shape[1], 1), dtype=im.dtype)), axis=2)
         elif im.shape[2] != 3:
             # project to RGB
-            raise Exception('spectral to RGB conversion not implemented')
+            if colour is None:
+                raise NotImplemented('please install the colour-science package')
+
+            wl_range = self.spec_wl1 - self.spec_wl0
+            spec_shape = colour.SpectralShape(self.spec_wl0, self.spec_wl1, wl_range / (im.shape[2] - 1))
+
+            illuminant = deepcopy(colour.SDS_ILLUMINANTS[self.spec_illuminant_selected_name])
+            illuminant = illuminant.align(shape=spec_shape)
+            cmfs = deepcopy(colour.MSDS_CMFS[self.spec_cmf_selected_name])
+            cmfs = cmfs.align(shape=spec_shape)
+            im = colour.msds_to_XYZ(im, cmfs, illuminant, method='Integration', shape=spec_shape)
+            if self.spec_cmf_selected_name.lower().startswith('cie'):
+                im = colour.XYZ_to_sRGB(im / 100)
+            else:
+                im /= 100
         return np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / self.gamma)
-        
-    def updateImage(self):
+
+    def switch_image(self, delta=1, redraw=True):
+        """set index to previous or next image, optionally skip redrawing of canvas (and thus the actual image display)"""
+        self._switch_to_single_image()
+        self.imind = int(np.mod(self.imind + delta, self.nims))
+        self._update_info()
+        if self.autoscaleEnabled:
+            self.autoscale()
+        if redraw:
+            self._display_image()
+
+    def _display_image(self):
+        # display collage or single image, resetting the axes (zoom) when necessary
         if self.collageActive:
-            self.collage()
+            self._display_collage()
             self.setWindowTitle('iv ' + self.timestamp + ' %d x %d collage (#ims: %d)'
                                 % (self.collage_nr, self.collage_nc, self.nims))
         else:
@@ -893,36 +858,42 @@ class iv(QMainWindow):
             #height, width = self.ih.get_size()
             #lims = (-0.5, width - 0.5, -0.5, height - 0.5)
             #self.ax.set(xlim = lims[0:2], ylim = lims[2:4])
-            try:
-                self.ax.get_yaxis().set_inverted(True)
-            except Exception:
-                self.ax.invert_yaxis()
+            self._invert_y()
             self.fig.canvas.draw()
             self.setWindowTitle('iv ' + self.timestamp + ' %d / %d' % (self.imind + 1, self.nims))
-    
-    def setScale(self, scale, update=True):
+
+    def _update_info(self):
+        self.uiLabelInfo.setText(('image: %d / %d\nimage size:\n' % (self.imind + 1, self.nims)) + str(self.get_img().shape))
+
+    def _invert_y(self):
+        try:
+            self.ax.get_yaxis().set_inverted(True)
+        except AttributeError:
+            self.ax.invert_yaxis()
+
+    def set_scale(self, scale, redraw=True):
         self.scale = scale
         self.uiLEScale.setText(str(self.scale))
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
         self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
-        if update:
-            self.updateImage()
+        if redraw:
+            self._display_image()
 
-    def setGamma(self, gamma, update=True):
+    def set_gamma(self, gamma, redraw=True):
         self.gamma = gamma
         self.uiLEGamma.setText(str(self.gamma))
-        if update:
-            self.updateImage()
+        if redraw:
+            self._display_image()
     
-    def setOffset(self, offset, update=True):
+    def set_offset(self, offset, redraw=True):
         self.offset = offset
         self.uiLEOffset.setText(str(self.offset))
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
         self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
-        if update:
-            self.updateImage()
+        if redraw:
+            self._display_image()
 
-    def onclick(self, event):
+    def _onclick(self, event):
         if event.dblclick:
             self.reset_zoom()
             self.mouse_down ^= event.button
@@ -931,14 +902,14 @@ class iv(QMainWindow):
             self.y_start = event.ydata
             self.prev_delta_x = 0
             self.prev_delta_y = 0
-            self.cur_xlims = self.ih.axes.axis()[0 : 2]
-            self.cur_ylims = self.ih.axes.axis()[2 :]
+            self.cur_xlims = self.ih.axes.axis()[0: 2]
+            self.cur_ylims = self.ih.axes.axis()[2:]
             self.mouse_down |= event.button
             
-    def onrelease(self, event):
+    def _onrelease(self, event):
         self.mouse_down ^= event.button
             
-    def onmotion(self, event):
+    def _onmotion(self, event):
         if self.mouse_down == 1 and event.inaxes:
             delta_x = self.x_start - event.xdata
             delta_y = self.y_start - event.ydata
@@ -951,18 +922,17 @@ class iv(QMainWindow):
             self.y_start += (delta_y - self.prev_delta_y)
             self.prev_delta_x = delta_x
             self.prev_delta_y = delta_y
-    
-    def keyPressEvent(self, event):
-    #def onkeypress(self, event):
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
         mod = event.modifiers()
-        if key == Qt.Key_Question: # ?
-            self.print_usage()
-        elif key == Qt.Key_A: # a
+        if key == Qt.Key_Question:  # ?
+            IV.print_usage()
+        elif key == Qt.Key_A:  # a
             # trigger autoscale
             self.autoscale()
             return
-        elif key == Qt.Key_A and mod == Qt.Key_Shift: # A
+        elif key == Qt.Key_A and mod == Qt.Key_Shift:  # A
             # toggle autoscale between user-selected percentiles or min-max
             self.autoscaleUsePrctiles = not self.autoscaleUsePrctiles
             self.autoscale()
@@ -976,7 +946,7 @@ class iv(QMainWindow):
         elif key == Qt.Key_L:
             # update axes for single image dimensions
             if self.collageActive:
-                self.switch_to_single_image()
+                self._switch_to_single_image()
             else:
                 # toggle showing collage
                 self.collageActive = not self.collageActive
@@ -1006,25 +976,14 @@ class iv(QMainWindow):
             self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
             return
         elif key == Qt.Key_Left:
-            self.switch_to_single_image()
-            self.imind = np.mod(self.imind - 1, self.nims)
-            print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleEnabled:
-                self.autoscale()
-                return
+            self.switch_image(-1, False)
         elif key == Qt.Key_Right:
-            self.switch_to_single_image()
-            self.imind = np.mod(self.imind + 1, self.nims)
-            print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleEnabled:
-                self.autoscale()
-                return
+            self.switch_image(1, False)
         else:
             return
-        self.updateImage()
-            
-    def keyReleaseEvent(self, event):
-    #def onkeyrelease(self, event):
+        self._display_image()
+
+    def keyReleaseEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
         if key == Qt.Key_Alt:
             self.alt = False
@@ -1034,7 +993,7 @@ class iv(QMainWindow):
             self.shift = False
         self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
     
-    def onscroll(self, event):
+    def _onscroll(self, event):
         if self.control and self.shift:
             # autoscale percentiles
             self.autoscalePrctiles[0] = np.clip(self.autoscalePrctiles[0] / np.power(1.1, event.step), 0., 50.)
@@ -1044,23 +1003,25 @@ class iv(QMainWindow):
             self.autoscale()
         elif self.control:
             # scale
-            self.setScale(self.scale * np.power(1.1, event.step))
+            self.set_scale(self.scale * np.power(1.1, event.step))
         elif self.shift:
             # gamma
-            self.setGamma(self.gamma * np.power(1.1, event.step))
-        elif event.inaxes:
-            # zoom when inside image axes
-            factor = np.power(self.zoom_factor, -event.step)
-            self.zoom([event.xdata, event.ydata], factor)
-            return
+            self.set_gamma(self.gamma * np.power(1.1, event.step))
         else:
-            # scroll through images when outside of axes
-            self.switch_to_single_image()
-            self.imind = int(np.mod(self.imind - event.step, self.nims))
-            print('image %d / %d' % (self.imind + 1, self.nims))
-            if self.autoscaleEnabled:
-                self.autoscale()
-        self.updateImage()
+            x = event.xdata
+            y = event.ydata
+            h, w, = self.ih.get_size()
+            x0, x1 = -0.5, w - 0.5
+            y0, y1 = -0.5, h - 0.5
+            if event.inaxes and x0 <= x <= x1 and y0 <= y <= y1:
+                # zoom when inside image axes
+                factor = np.power(self.zoom_factor, -event.step)
+                self.zoom([x, y], factor)
+                return
+            else:
+                # scroll through images when outside of axes
+                self.switch_image(-event.step, False)
+        self._display_image()
 
     def copy_to_clipboard(self):
         im = (255 * self.ih.get_array()).astype(np.uint8)
@@ -1092,16 +1053,16 @@ class iv(QMainWindow):
             im = self.get_img()
             if zoomed:
                 h, w = im.shape[:2]
-                lims = self.ax.axis()
-                x0 = np.max([0, int(lims[0] + 0.5)])
-                x1 = np.min([w, int(lims[1] + 0.5)])
-                y0 = np.max([0, int(lims[3] + 0.5)])
-                y1 = np.min([h, int(lims[2] + 0.5)])
-                image = im[y0 : y1, x0 : x1, :]
+                limits = self.ax.axis()
+                x0 = np.max([0, int(limits[0] + 0.5)])
+                x1 = np.min([w, int(limits[1] + 0.5)])
+                y0 = np.max([0, int(limits[3] + 0.5)])
+                y1 = np.min([h, int(limits[2] + 0.5)])
+                image = im[y0:y1, x0:x1, :]
             elif canvas:
                 from pysmtb.utils import qimage_to_np
                 im = QImage(self.canvas.grab())
-                #im = im.convertToFormat(QImage.Format_RGB888)
+                # im = im.convertToFormat(QImage.Format_RGB888)
                 image = qimage_to_np(im)
 
                 image = image[:, :, -2::-1]
@@ -1113,7 +1074,6 @@ class iv(QMainWindow):
                 image = image[: int(height_axes), : int(width_axes), :]
             else:
                 image = np.array(self.ih.get_array())
-            import imageio
             imageio.imwrite(ofname, image)
         except Exception as e:
             warn(str(e))
