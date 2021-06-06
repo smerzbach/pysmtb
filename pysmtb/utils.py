@@ -15,7 +15,9 @@ try:
 except:
     pass
 
-def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1, x=0, y=0):
+
+def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1,
+                   x=0, y=0, overlay=False, overlay_color=1., overlay_bbox=None):
     from PIL import Image
     from PIL import ImageFont
     from PIL import ImageDraw
@@ -54,6 +56,21 @@ def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], 
     mask = np.atleast_3d(np.array(mask, dtype=np.float) / 255.).astype(image.dtype)
     alpha = np.atleast_3d(mask[:,:,-1])
     mask = np.atleast_3d(mask[:,:,:-1])
+
+    if overlay:
+        if overlay_bbox is not None:
+            x0 = overlay_bbox['x0']
+            x1 = overlay_bbox['x1']
+            y0 = overlay_bbox['y0']
+            y1 = overlay_bbox['y1']
+        else:
+            h, w = alpha.shape[:2]
+            ys, xs = np.where(alpha[:, :, 0] != 0)
+            y0 = np.maximum(0, np.minimum(np.min(ys), y))
+            y1 = np.minimum(h, np.maximum(np.max(ys), y))
+            x0 = np.maximum(0, np.minimum(np.min(xs), x))
+            x1 = np.minimum(w, np.maximum(np.max(xs), x))
+        image[y0:y1, x0:x1, :] = overlay_color
 
     return (1 - alpha) * image + alpha * mask
 
