@@ -189,6 +189,35 @@ def crop_bounds(images, apply=True, crop_global=True, background=0):
     return dict(images=images, xmins=xmins, xmaxs=xmaxs, ymins=ymins, ymaxs=ymaxs)
 
 
+def split_patches(h, w, patch_size=128, min_patch_size=1, overlap=8, padding='repeat'):
+    """given height and width (of a texture) as well as a patch size, return ranges of x and y coordinates dividing the
+    texture into patches via slicing"""
+    def cl(i, length):
+        return np.clip(i, 0, length - 1)
+
+    assert h > min_patch_size, 'height %d is smaller than %d' % (h, min_patch_size)
+    assert w > min_patch_size, 'width %d is smaller than %d' % (w, min_patch_size)
+
+    def divide(length):
+        starts = np.r_[0:length:patch_size] - overlap
+        ends = starts + patch_size + 2 * overlap
+        # check that last segment is larger than min_patch_size
+        if len(starts) > 1 and length - starts[-1] < min_patch_size:
+            # move last starting point back so that last segment is exactly min_patch_size
+            ends[-2:] -= min_patch_size - (length - starts[-1])
+            starts[-1:] -= min_patch_size - (length - starts[-1])
+        if padding == 'repeat':
+            return [cl(np.r_[i0:i1], length) for i0, i1 in zip(starts, ends)]
+        elif padding is None or padding == 'none':
+            return [np.r_[cl(i0, length): cl(i1, length + 1)] for i0, i1 in zip(starts, ends)]
+        else:
+            raise Exception('padding must be one of: "none", "repeat"')
+
+    xs = divide(w)
+    ys = divide(h)
+    return xs, ys
+
+
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
     import scipy.io as spio
