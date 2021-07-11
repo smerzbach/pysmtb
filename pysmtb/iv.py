@@ -57,7 +57,7 @@ try:
 except ModuleNotFoundError:
     Tensor = type(None)
 
-from pysmtb.utils import crop_bounds, pad
+from pysmtb.utils import crop_bounds, pad, collage
 
 '''
 def MyPyQtSlot(*args):
@@ -188,6 +188,7 @@ class IV(QMainWindow):
         self.autoscaleUpper = self.autoscaleEnabled
         self.autoscaleGlobal = kwargs.get('autoscaleGlobal', False)
         self.collageActive = kwargs.get('collage', False)
+        self.collage_tight = kwargs.get('collageTight', kwargs.get('collage_tight', True))
         self.collageTranspose = kwargs.get('collageTranspose', False)
         self.collageTransposeIms = kwargs.get('collageTransposeIms', False)
         if 'nr' in kwargs and 'nc' in kwargs:
@@ -325,6 +326,7 @@ class IV(QMainWindow):
         self.uiCBAutoscaleGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, self.autoscaleGlobal)
         if self.nims > 1:
             self.uiCBCollageActive = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.collageActive)
+            self.uiCBCollageTight = _add_widget(width // 2, QCheckBox, 'tight', 'stateChanged', self._callback_check_box, self.collage_tight)
             self.uiCBCollageTranspose = _add_widget(width // 2, QCheckBox, 'transp.', 'stateChanged', self._callback_check_box, self.collageTranspose)
             self.uiCBCollageTransposeIms = _add_widget(width // 2, QCheckBox, 'transp. ims.', 'stateChanged', self._callback_check_box, self.collageTransposeIms)
             self.uiLECollageNr = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_nr)
@@ -390,8 +392,8 @@ class IV(QMainWindow):
         _add_row(QLabel('bounds:'), _multicolumn(self.uiLabelAutoscaleLower, self.uiLabelAutoscaleUpper))
         _add_row(_hdiv())
         if self.nims > 1:
-            _add_row(QLabel('collage:'), _multicolumn(self.uiCBCollageActive, self.uiCBCollageTranspose))
-            _add_row(QLabel('per img:'), self.uiCBCollageTransposeIms)
+            _add_row(QLabel('collage:'), _multicolumn(self.uiCBCollageActive, self.uiCBCollageTight))
+            _add_row(QLabel('per img:'), _multicolumn(self.uiCBCollageTranspose, self.uiCBCollageTransposeIms))
             _add_row(QLabel('NR x NC:'), _multicolumn(self.uiLECollageNr, self.uiLECollageNc))
             _add_row(QLabel('BW x BV:'), _multicolumn(self.uiLECollageBW, self.uiLECollageBV))
             _add_row(_hdiv())
@@ -490,9 +492,25 @@ class IV(QMainWindow):
             self.autoscale()
         elif hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
             self.collage_nr = int(tmp)
+            if self.nims > self.collage_nc * self.collage_nr:
+                # increase nc to match selected nr given nims
+                self.collage_nc = int(np.ceil(self.nims / self.collage_nr))
+                self.uiLECollageNc.blockSignals(True)
+                self.uiLECollageNr.blockSignals(True)
+                self.uiLECollageNc.setText(str(self.collage_nc))
+                self.uiLECollageNr.blockSignals(False)
+                self.uiLECollageNc.blockSignals(False)
             self._display_collage()
         elif hasattr(self, 'uiLECollageNc') and ui == self.uiLECollageNc:
             self.collage_nc = int(tmp)
+            if self.nims > self.collage_nc * self.collage_nr:
+                # increase nr to match selected nc given nims
+                self.collage_nr = int(np.ceil(self.nims / self.collage_nc))
+                self.uiLECollageNc.blockSignals(True)
+                self.uiLECollageNr.blockSignals(True)
+                self.uiLECollageNr.setText(str(self.collage_nr))
+                self.uiLECollageNr.blockSignals(False)
+                self.uiLECollageNc.blockSignals(False)
             self._display_collage()
         elif hasattr(self, 'uiLECollageBW') and ui == self.uiLECollageBW:
             self.collage_border_width = int(tmp)
@@ -539,6 +557,9 @@ class IV(QMainWindow):
                 self.autoscale()
         elif hasattr(self, 'uiCBCollageActive') and ui == self.uiCBCollageActive:
             self.collageActive = bool(state)
+            self._display_image()
+        elif hasattr(self, 'uiCBCollageTight') and ui == self.uiCBCollageTight:
+            self.collage_tight = bool(state)
             self._display_image()
         elif hasattr(self, 'uiCBCollageTranspose') and ui == self.uiCBCollageTranspose:
             self.collageTranspose = bool(state)
@@ -651,6 +672,7 @@ class IV(QMainWindow):
     def _display_collage(self):
         # arrange all images in a collage and display them
         if self.collage_nr * self.collage_nc < self.nims:
+            # reset to default in case nc * nr < nims
             nc = int(np.ceil(np.sqrt(self.nims)))
             nr = int(np.ceil(self.nims / nc))
             self.collage_nr = nr
@@ -661,53 +683,17 @@ class IV(QMainWindow):
             self.uiLECollageNc.setText(str(nc))
             self.uiLECollageNr.blockSignals(False)
             self.uiLECollageNc.blockSignals(False)
-        else:
-            nc = self.collage_nc
-            nr = self.collage_nr
         
         # pad array so it matches the product nc * nr
-        padding = nc * nr - self.nims
         ims = self.get_imgs(tonemap=True, decorate=True)
-        h = np.max([im.shape[0] for im in ims])
-        w = np.max([im.shape[1] for im in ims])
-        num_channels = np.max([im.shape[2] for im in ims])
-        ims = [pad(im, new_width=w, new_height=h, new_num_channels=num_channels) for im in ims]
-        ims += [self.collage_border_value * np.ones((h, w, num_channels))] * padding
-        coll = np.stack(ims, axis=3)
-        coll = np.reshape(coll, (h, w, num_channels, nr, nc))
-        # 0  1  2   3   4
-        # y, x, ch, ro, co
-        if self.collage_border_width:
-            # pad each patch by border if requested
-            coll = np.append(coll, self.collage_border_value * np.ones((self.collage_border_width, ) + coll.shape[1 : 5]), axis=0)
-            coll = np.append(coll, self.collage_border_value * np.ones((coll.shape[0], self.collage_border_width) + coll.shape[2 : 5]), axis=1)
-        if self.collageTranspose:
-            nim0 = nc
-            nim1 = nr
-            if self.collageTransposeIms:
-                dim0 = w
-                dim1 = h
-                #                          nr w  nc h  ch
-                coll = np.transpose(coll, (4, 1, 3, 0, 2))
-            else:
-                dim0 = h
-                dim1 = w
-                #                          nr h  nc w  ch
-                coll = np.transpose(coll, (4, 0, 3, 1, 2))
-        else:
-            nim0 = nr
-            nim1 = nc
-            if self.collageTransposeIms:
-                dim0 = w
-                dim1 = h
-                #                          nc w  nr h  ch
-                coll = np.transpose(coll, (3, 1, 4, 0, 2))
-            else:
-                dim0 = h
-                dim1 = w
-                #                          nc h  nr w  ch
-                coll = np.transpose(coll, (3, 0, 4, 1, 2))
-        coll = np.reshape(coll, ((dim0 + self.collage_border_width) * nim0, (dim1 + self.collage_border_width) * nim1, num_channels))
+        coll = collage(images=ims,
+                       nc=self.collage_nc,
+                       nr=self.collage_nr,
+                       tight=self.collage_tight,
+                       transpose=self.collageTranspose,
+                       transpose_ims=self.collageTransposeIms,
+                       bv=self.collage_border_value,
+                       bw=self.collage_border_width)
 
         self.ax.clear()
         if coll.dtype == np.float16:

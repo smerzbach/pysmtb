@@ -20,6 +20,16 @@ def rand_im(width, height, num_channels, num_ims, scales):
 
 
 if __name__ == "__main__":
+
+    # test tight collage mode
+    ims1 = [np.random.rand(25, 15, 3) for _ in range(10)]
+    ims2 = [np.random.rand(10, 12, 3) for _ in range(10)]
+    ims3 = [np.random.rand(15, 12, 1) for _ in range(8)]
+    coll = collage(ims1 + ims2 + ims3, bw=1, tight=False, nc=5)
+    coll_tight = collage(ims1 + ims2 + ims3, bw=1, tight=True, nc=5)
+    v = iv.iv(dict(tight=coll_tight, non_tight=coll), collage=True, collageBorderWidth=1, collageBorderValue=1, annotate=True)
+    v = iv.iv(ims1, ims2, ims3, collage=True, collageBorderWidth=1)
+
     # def interval(n):
     #     return deepcopy(cmfs).align(colour.SpectralShape(250., 800., (800. - 250.) / n)).shape.interval
     #
@@ -39,6 +49,7 @@ if __name__ == "__main__":
     im = colour.msds_to_XYZ(np.random.rand(10, 10, num_bands), cmfs, illuminant, method='Integration', shape=spec_shape)
     iv.iv(im)
 
+    # test mixed inputs & collage
     dims = np.zeros((4, 5, 2))
     dims[:2, :, 0] = 10
     dims[2:, :, 0] = 15
@@ -48,6 +59,7 @@ if __name__ == "__main__":
     ims_tensors = torch.rand((12, 3, 15, 15))
     ims_list = [np.random.rand(12, 12) for _ in range(9)]
     v = iv.iv(ims, ims_tensors, ims_list, collage=True, collageBorderWidth=2)
+
 
     # WIP: overlay of numeric pixel values
     ims = np.random.rand(10, 10, 3, 16).astype(np.float16)

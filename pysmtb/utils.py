@@ -94,76 +94,136 @@ def pad(image, new_width, new_height, new_num_channels=None, value=0., center=Tr
     return image
 
 
-def collage(images, **kwargs):
+def collage(images, dim=-1, **kwargs):
+    """assemble a list of images or an ndarray into an nr x nc mosaic of sub-images, optionally with border separating
+    the images, by default sub-images are packed tightly, i.e. they are padded per row and column with the minimal
+    necessary margin to allow concatenation; optionally the entire collage or individual images can be transposed"""
     if isinstance(images, np.ndarray):
-        if images.ndim == 4:
-            images = [images[:, :, :, i] for i in range(images.shape[3])]
-        else:
-            images = [images]
+        # slice into specified dimension of ndarray
+        images = np.atleast_3d(images)
+        if images.ndim == 3:
+            images = images[..., None]
+        images = [images.take(i, axis=dim) for i in range(images.shape[dim])]
     if isinstance(images, list):
         images = [np.atleast_3d(im) for im in images]
 
     nims = len(images)
 
+    tight = kwargs.get('tight', True)  # pack images tightly in each row / column
     nc = kwargs.get('nc', None)  # number of columns
     nr = kwargs.get('nr', None)  # number of rows
-    if nc is None:
-        nc = int(np.ceil(np.sqrt(nims)))
-    if nr is None:
-        nr = int(np.ceil(nims / nc))
     bw = kwargs.get('bw', 0)  # border width
     bv = kwargs.get('bv', 0)  # border value
     transpose = kwargs.get('transpose', False)
-    transposeIms = kwargs.get('transposeIms', False)
-    fill_value = kwargs.get('fill_value', 1)
+    transpose_ims = kwargs.get('transposeIms', kwargs.get('transpose_ims', None))
+
+    if 'fill_value' in kwargs:
+        from warnings import warn
+        warn('"fill_value" is deprecated, use "bv" instead')
+
+    if nc is None:
+        if nr is None:
+            nc = int(np.ceil(np.sqrt(nims)))
+        else:
+            nc = int(np.ceil(nims / nr))
+    if nr is None:
+        nr = int(np.ceil(nims / nc))
+    assert nr * nc >= nims, 'specified nr & nc (nr=%d, nc=%d) are too small for %d images' % (nr, nc, nims)
 
     if nr * nc < nims:
         nc = int(np.ceil(np.sqrt(nims)))
         nr = int(np.ceil(nims / nc))
 
-    # pad array so it matches the product nc * nr
-    padding = nc * nr - nims
-    heights, widths, num_channels = zip(*[im.shape for im in images])
-    h = np.max([im.shape[0] for im in images])
-    w = np.max([im.shape[1] for im in images])
+    # all images have to be padded in channel dimension to the maximum number of channels
     num_channels = np.max([im.shape[2] for im in images])
-    ims = [pad(im, new_width=w, new_height=h, new_num_channels=num_channels) for im in images]
-    ims += [fill_value * np.ones((h, w, num_channels))] * padding
-    coll = np.stack(ims, axis=3)
-    coll = np.reshape(coll, (h, w, num_channels, nr, nc))
-    # 0  1  2   3   4
-    # y, x, ch, co, ro
-    if bw:
-        # pad each patch by border if requested
-        coll = np.append(coll, bv * np.ones((bw,) + coll.shape[1: 5]), axis=0)
-        coll = np.append(coll, bv * np.ones((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
+
+    if transpose_ims:
+        # transpose individual images
+        images = [np.transpose(im, (1, 0, 2)) for im in images]
+
+    # fill up array so it matches the product nc * nr
+    ims = np.array(images + [np.empty((0, 0, 0)) for _ in range(nc * nr - nims)], dtype=object)
+
     if transpose:
-        nim0 = nc
-        nim1 = nr
-        if transposeIms:
-            dim0 = w
-            dim1 = h
-            #                          nr w  nc h  ch
-            coll = np.transpose(coll, (4, 1, 3, 0, 2))
-        else:
-            dim0 = h
-            dim1 = w
-            #                          nr h  nc w  ch
-            coll = np.transpose(coll, (4, 0, 3, 1, 2))
+        # swap so that nr & nc remain intuitive when transposed
+        nr, nc = (nc, nr)
+
+    # arrange into grid
+    ims = np.reshape(ims, (nr, nc))
+
+    if transpose:
+        # optionally transpose
+        ims = ims.T
+
+    # query nr & nc again in case transpose == True
+    nr, nc = ims.shape
+
+    # get height & width of each image, arranged as nr x nc array so we can work row- & column-wise
+    heights = np.reshape([im.shape[0] for im in ims.flatten()], ims.shape)
+    widths = np.reshape([im.shape[1] for im in ims.flatten()], ims.shape)
+
+    if tight:
+        row_heights = np.max(heights, axis=1)
+        col_widths = np.max(widths, axis=0)
     else:
-        nim0 = nr
-        nim1 = nc
-        if transposeIms:
-            dim0 = w
-            dim1 = h
-            #                          nc w  nr h  ch
-            coll = np.transpose(coll, (3, 1, 4, 0, 2))
-        else:
-            dim0 = h
-            dim1 = w
-            #                          nc h  nr w  ch
-            coll = np.transpose(coll, (3, 0, 4, 1, 2))
-    coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, num_channels))
+        row_heights = np.repeat(np.max(heights), nr)
+        col_widths = np.repeat(np.max(widths), nc)
+
+    rows = []
+    ii = 0
+    for ri in range(nr):
+        h = row_heights[ri]
+        row = []
+        for ci in range(nc):
+            w = col_widths[ci]
+            if ii < nims:
+                im = ims[ri, ci]
+                if im.shape[2] == 1:
+                    # replicate single-channel images (other channel counts will be zero-padded, e.g. for RG-coded images)
+                    im = np.repeat(im, num_channels, axis=2)
+                im = pad(im, new_width=w + bw, new_height=h + bw, new_num_channels=num_channels, value=bv)
+            else:
+                im = bv * np.ones((h + bw, w + bw, num_channels))
+            row.append(im)
+            ii += 1
+        rows.append(np.concatenate(row, axis=1))
+    coll = np.concatenate(rows, axis=0)
+
+    # coll = np.stack(ims, axis=3)
+    # coll = np.reshape(coll, (max_height, max_width, num_channels, nr, nc))
+    # # 0  1  2   3   4
+    # # y, x, ch, co, ro
+    # if bw:
+    #     # pad each patch by border if requested
+    #     coll = np.append(coll, bv * np.ones((bw,) + coll.shape[1: 5]), axis=0)
+    #     coll = np.append(coll, bv * np.ones((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
+    # if transpose:
+    #     nim0 = nc
+    #     nim1 = nr
+    #     if transpose_ims:
+    #         dim0 = max_width
+    #         dim1 = max_height
+    #         #                          nr w  nc h  ch
+    #         coll = np.transpose(coll, (4, 1, 3, 0, 2))
+    #     else:
+    #         dim0 = max_height
+    #         dim1 = max_width
+    #         #                          nr h  nc w  ch
+    #         coll = np.transpose(coll, (4, 0, 3, 1, 2))
+    # else:
+    #     nim0 = nr
+    #     nim1 = nc
+    #     if transpose_ims:
+    #         dim0 = max_width
+    #         dim1 = max_height
+    #         #                          nc w  nr h  ch
+    #         coll = np.transpose(coll, (3, 1, 4, 0, 2))
+    #     else:
+    #         dim0 = max_height
+    #         dim1 = max_width
+    #         #                          nc h  nr w  ch
+    #         coll = np.transpose(coll, (3, 0, 4, 1, 2))
+    # coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, num_channels))
 
     return coll
 
