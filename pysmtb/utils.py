@@ -159,8 +159,13 @@ def collage(images, dim=-1, **kwargs):
     nr, nc = ims.shape
 
     # get height & width of each image, arranged as nr x nc array so we can work row- & column-wise
-    heights = np.reshape([im.shape[0] for im in ims.flatten()], ims.shape)
-    widths = np.reshape([im.shape[1] for im in ims.flatten()], ims.shape)
+    if ims.size == 1 and np.isscalar(ims.flatten()[0]):
+        ims = np.array([[np.atleast_3d(ims[0][0])]], dtype=object)
+        heights = [[1]]
+        widths = [[1]]
+    else:
+        heights = np.reshape([im.shape[0] for im in ims.flatten()], ims.shape)
+        widths = np.reshape([im.shape[1] for im in ims.flatten()], ims.shape)
 
     if tight:
         row_heights = np.max(heights, axis=1)
@@ -188,43 +193,6 @@ def collage(images, dim=-1, **kwargs):
             ii += 1
         rows.append(np.concatenate(row, axis=1))
     coll = np.concatenate(rows, axis=0)
-
-    # coll = np.stack(ims, axis=3)
-    # coll = np.reshape(coll, (max_height, max_width, num_channels, nr, nc))
-    # # 0  1  2   3   4
-    # # y, x, ch, co, ro
-    # if bw:
-    #     # pad each patch by border if requested
-    #     coll = np.append(coll, bv * np.ones((bw,) + coll.shape[1: 5]), axis=0)
-    #     coll = np.append(coll, bv * np.ones((coll.shape[0], bw) + coll.shape[2: 5]), axis=1)
-    # if transpose:
-    #     nim0 = nc
-    #     nim1 = nr
-    #     if transpose_ims:
-    #         dim0 = max_width
-    #         dim1 = max_height
-    #         #                          nr w  nc h  ch
-    #         coll = np.transpose(coll, (4, 1, 3, 0, 2))
-    #     else:
-    #         dim0 = max_height
-    #         dim1 = max_width
-    #         #                          nr h  nc w  ch
-    #         coll = np.transpose(coll, (4, 0, 3, 1, 2))
-    # else:
-    #     nim0 = nr
-    #     nim1 = nc
-    #     if transpose_ims:
-    #         dim0 = max_width
-    #         dim1 = max_height
-    #         #                          nc w  nr h  ch
-    #         coll = np.transpose(coll, (3, 1, 4, 0, 2))
-    #     else:
-    #         dim0 = max_height
-    #         dim1 = max_width
-    #         #                          nc h  nr w  ch
-    #         coll = np.transpose(coll, (3, 0, 4, 1, 2))
-    # coll = np.reshape(coll, ((dim0 + bw) * nim0, (dim1 + bw) * nim1, num_channels))
-
     return coll
 
 

@@ -229,8 +229,12 @@ class IV(QMainWindow):
         # TODO: expose these
         self.spec_wl0 = 380
         self.spec_wl1 = 730
-        self.spec_cmf_names = list(colour.MSDS_CMFS.keys())
-        self.spec_illuminant_names = list(colour.SDS_ILLUMINANTS.keys())
+        if colour is not None:
+            self.spec_cmf_names = list(colour.MSDS_CMFS.keys())
+            self.spec_illuminant_names = list(colour.SDS_ILLUMINANTS.keys())
+        else:
+            self.spec_cmf_names = ['pip install colour-science']
+            self.spec_illuminant_names = ['pip install colour-science']
         self.spec_cmf_selected_name = 'CIE 1931 2 Degree Standard Observer'
         self.spec_illuminant_selected_name = 'E'
 
@@ -793,7 +797,7 @@ class IV(QMainWindow):
         elif im.shape[2] != 3:
             # project to RGB
             if colour is None:
-                raise NotImplemented('please install the colour-science package')
+                raise NotImplemented('please install the colour-science package (pip install colour-science)')
 
             wl_range = self.spec_wl1 - self.spec_wl0
             spec_shape = colour.SpectralShape(self.spec_wl0, self.spec_wl1, wl_range / (im.shape[2] - 1))
