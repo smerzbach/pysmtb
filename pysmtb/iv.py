@@ -218,7 +218,8 @@ class IV(QMainWindow):
         self.annotate_numbers = kwargs.get('annotate_numbers', True)
         self.font_size = kwargs.get('font_size', 12)
         self.font_color = kwargs.get('font_color', 1)
-        self.labels = kwargs.get('labels', None)
+        if len(self.labels) == 0:
+            self.labels = None
         if self.labels is not None:
             assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
                                                          % (len(self.labels), len(self.images))
