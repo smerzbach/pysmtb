@@ -1,5 +1,12 @@
 # pysmtb
 python toolbox of (mostly) image-related helper / visualization functions 
+
+## installation
+```
+pip install pysmtb
+```
+
+## example usage
 ```
 from glob import glob
 
