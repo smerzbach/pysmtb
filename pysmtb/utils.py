@@ -115,7 +115,7 @@ def collage(images, dim=-1, **kwargs):
     bw = kwargs.get('bw', 0)  # border width
     bv = kwargs.get('bv', 0)  # border value
     transpose = kwargs.get('transpose', False)
-    transpose_ims = kwargs.get('transposeIms', kwargs.get('transpose_ims', None))
+    transpose_ims = kwargs.get('transposeIms', kwargs.get('transpose_ims', False))
 
     if 'fill_value' in kwargs:
         from warnings import warn
@@ -141,8 +141,10 @@ def collage(images, dim=-1, **kwargs):
         # transpose individual images
         images = [np.transpose(im, (1, 0, 2)) for im in images]
 
-    # fill up array so it matches the product nc * nr
-    ims = np.array(images + [np.empty((0, 0, 0)) for _ in range(nc * nr - nims)], dtype=object)
+    # fill up array so it matches the product nc * nr; ensure we always fill up at least one array to avoid problems
+    # with implicit conversions during the surrounding np.array() call
+    ims = np.array(images + [np.empty((0, 0, 0)) for _ in range(nc * nr - nims + 1)], dtype=object)
+    ims = ims[:-1]
 
     if transpose:
         # swap so that nr & nc remain intuitive when transposed
