@@ -25,6 +25,9 @@ def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip
     if axes is None:
         fig = plt.gcf()
         axes = fig.add_subplot(111, projection='3d')
+        axes_provided = False
+    else:
+        axes_provided = True
 
     if xyz.ndim == 2 and xyz.shape[1] == 3 and xyz.shape[0] != 3:
         xyz = xyz.T
@@ -47,6 +50,10 @@ def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip
         xlim = [mid_x - max_range, mid_x + max_range]
         ylim = [mid_y - max_range, mid_y + max_range]
         zlim = [mid_z - max_range, mid_z + max_range]
+    elif axis == 'fixed':
+        xlim = None
+        ylim = None
+        zlim = None
     elif axis != 'auto':
         raise NotImplementedError('axis mode %s not implemented' % axis)
     else:
@@ -82,12 +89,19 @@ def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip
     else:
         raise NotImplementedError('method %s has not been implemented')
 
-    if axis != 'auto':
-        max_range = np.max([xlim[1] - xlim[0], ylim[1] - ylim[0], zlim[1] - zlim[0]])
-        axes.set_xlim(xlim[0], xlim[0] + max_range)
-        axes.set_ylim(ylim[0], ylim[0] + max_range)
-        axes.set_zlim(zlim[0], zlim[0] + max_range)
+    if axes_provided:
+        # expand previous axes limits
+        xlim[0] = np.minimum(xlim[0], axes.get_xlim()[0])
+        xlim[1] = np.maximum(xlim[1], axes.get_xlim()[1])
+        ylim[0] = np.minimum(ylim[0], axes.get_ylim()[0])
+        ylim[1] = np.maximum(ylim[1], axes.get_ylim()[1])
+        zlim[0] = np.minimum(zlim[0], axes.get_zlim()[0])
+        zlim[1] = np.maximum(zlim[1], axes.get_zlim()[1])
+
+    if axis != 'fixed':
+        axes.set_xlim(xlim[0], xlim[1])
+        axes.set_ylim(ylim[0], ylim[1])
+        axes.set_zlim(zlim[0], zlim[1])
 
     axes.set_position(Bbox([[0, 0], [1, 1]]))
     return handle
-
