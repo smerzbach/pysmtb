@@ -338,7 +338,7 @@ class IV(QMainWindow):
             self.uiLECollageBW = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_width)
             self.uiLECollageBV = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_value)
         self.uiCBCrop = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.crop)
-        self.uiCBCropGlobal = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.crop_global)
+        self.uiCBCropGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, self.crop_global)
         self.uiLECropBackground = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.crop_background)
         self.uiCBAnnotate = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.annotate)
         self.uiCBAnnotateNumbers = _add_widget(width // 2, QCheckBox, 'numbers', 'stateChanged', self._callback_check_box, self.annotate_numbers)
@@ -617,6 +617,8 @@ class IV(QMainWindow):
         im = self.images[i]
         if self.crop:
             im = im[self.ymins[i]:self.ymaxs[i], self.xmins[i]:self.xmaxs[i], :]
+        if im.dtype != np.float32:
+            im = im.astype(np.float32)
         if tonemap:
             im = self.tonemap(im)
         if decorate and self.annotate:
@@ -662,6 +664,10 @@ class IV(QMainWindow):
                 im = self.get_img(tonemap=False, decorate=False)
                 lower = np.min(im)
                 upper = np.max(im)
+        if upper == lower:
+            # enforce scaling by 1 to avoid zero division
+            lower -= 0.5
+            upper += 0.5
         if self.autoscaleLower:
             self.set_offset(lower, False)
             self.uiLabelAutoscaleLower.setText('%f' % lower)

@@ -21,6 +21,15 @@ def rand_im(width, height, num_channels, num_ims, scales):
 
 if __name__ == "__main__":
 
+    # test boolean images
+    im1 = np.random.rand(100, 100, 3) < 0.5 ** 3
+    v = iv.iv(im1, np.zeros((100, 100), dtype=bool), np.ones((100, 100), dtype=bool))
+
+    # test cropping
+    im1 = np.zeros((100, 100), dtype=bool)
+    im1[25:-25, 25:-25] = True
+    v = iv.iv(im1, np.zeros((10, 10), dtype=bool))
+
     # test tight collage mode
     ims1 = [np.random.rand(25, 15, 3) for _ in range(10)]
     ims2 = [np.random.rand(10, 12, 3) for _ in range(10)]
