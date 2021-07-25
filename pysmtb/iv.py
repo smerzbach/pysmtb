@@ -948,7 +948,6 @@ class IV(QMainWindow):
             self.prev_delta_y = delta_y
         elif event.inaxes:
             im = self.get_img(tonemap=False, decorate=False)
-            print(im.shape)
             x = np.maximum(0, np.minimum(im.shape[1] - 1, int(event.xdata + 0.5)))
             y = np.maximum(0, np.minimum(im.shape[0] - 1, int(event.ydata + 0.5)))
             pixel = {'value': im[y, x], 'x': x, 'y': y}

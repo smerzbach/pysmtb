@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="pysmtb",
-    version="0.0.19",
+    version="0.0.20",
     author="Sebastian Merzbach",
     author_email="smerzbach@gmail.com",
     description="python toolbox of (mostly) image-related helper / visualization functions",
