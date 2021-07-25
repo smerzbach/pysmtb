@@ -1,7 +1,10 @@
 from copy import deepcopy
 import colour
 import numpy as np
-import torch
+try:
+    import torch
+except:
+    torch = None
 
 from pysmtb import iv
 from pysmtb.utils import collage
@@ -22,7 +25,7 @@ def rand_im(width, height, num_channels, num_ims, scales):
 if __name__ == "__main__":
 
     # test boolean images
-    im1 = np.random.rand(100, 100, 3) < 0.5 ** 3
+    im1 = np.random.rand(10, 10, 3) < 0.5 ** 3
     v = iv.iv(im1, np.zeros((100, 100), dtype=bool), np.ones((100, 100), dtype=bool))
 
     # test cropping
@@ -59,21 +62,16 @@ if __name__ == "__main__":
     iv.iv(im)
 
     # test mixed inputs & collage
-    dims = np.zeros((4, 5, 2))
-    dims[:2, :, 0] = 10
-    dims[2:, :, 0] = 15
-    c = collage([np.random.rand()])
-    ims = np.random.rand(10, 10, 3, 4)
-    # ims = rand_im(100, 100, 3, 4, [10, 10, 3])
-    ims_tensors = torch.rand((12, 3, 15, 15))
-    ims_list = [np.random.rand(12, 12) for _ in range(9)]
-    v = iv.iv(ims, ims_tensors, ims_list, collage=True, collageBorderWidth=2)
-
-
-    # WIP: overlay of numeric pixel values
-    ims = np.random.rand(10, 10, 3, 16).astype(np.float16)
-    v = iv.iv(ims)
-    v.overlay_pixel_values()
+    if torch is not None:
+        dims = np.zeros((4, 5, 2))
+        dims[:2, :, 0] = 10
+        dims[2:, :, 0] = 15
+        c = collage([np.random.rand()])
+        ims = np.random.rand(10, 10, 3, 4)
+        # ims = rand_im(100, 100, 3, 4, [10, 10, 3])
+        ims_tensors = torch.rand((12, 3, 15, 15))
+        ims_list = [np.random.rand(12, 12) for _ in range(9)]
+        v = iv.iv(ims, ims_tensors, ims_list, collage=True, collageBorderWidth=2)
 
     # compare different illuminants / CMFs in GUI
     ims_spec = np.random.rand(10, 10, 31, 4).astype(np.float32)
@@ -83,5 +81,10 @@ if __name__ == "__main__":
     iv.iv(dict(first=np.random.rand(100, 100, 3) + np.linspace(-1, 1, 100)[None, :, None],
                second=np.random.rand(100, 100, 3) + np.linspace(-1, 1, 100)[:, None, None]),
           annotate=True, annotate_numbers=False)
+
+    # WIP: overlay of numeric pixel values
+    ims = np.random.rand(10, 10, 3, 16).astype(np.float16)
+    v = iv.iv(ims)
+    v.overlay_pixel_values()
 
     print()

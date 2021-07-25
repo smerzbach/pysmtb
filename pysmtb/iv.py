@@ -859,8 +859,35 @@ class IV(QMainWindow):
             self.fig.canvas.draw()
             self.setWindowTitle('iv ' + self.timestamp + ' %d / %d' % (self.imind + 1, self.nims))
 
-    def _update_info(self):
-        self.uiLabelInfo.setText(('image: %d / %d\nimage size:\n' % (self.imind + 1, self.nims)) + str(self.get_img().shape))
+    def _update_info(self, pixel=None):
+        if pixel is not None:
+            if len(pixel['value']) <= 3:
+                # short pixel vectors are split at spaces and broken with newlines
+                tmp = str(pixel['value'])
+                while '  ' in tmp:
+                    tmp = tmp.replace('  ', ' ')
+                tmp = tmp.replace('[ ', '[').replace(' ]', ']')
+                tmp = '\n'.join(tmp.split(' '))
+            else:
+                # longer (probably spectral ones) are broken at fixed lengths
+                lines = ['']
+                for ind, val in enumerate(pixel['value']):
+                    last = ind == len(pixel['value']) - 1
+                    if len(lines) == 1:
+                        max_len = 21
+                    else:
+                        max_len = 28
+                    if len(lines[-1]) < max_len:
+                        lines[-1] += ('%.2f' if last else '%.2f, ') % val
+                    else:
+                        lines.append(('%.2f' if last else '%.2f, ') % val)
+                tmp = '[' + '\n'.join(lines) + ']'
+            pixel = '\n(%d,%d): %s' % (pixel['x'], pixel['y'], tmp)
+        else:
+            pixel = ' \n \n '
+        size = str(self.get_img().shape)
+        size = size.replace(', ', 'x')
+        self.uiLabelInfo.setText('img: %d/%d, %s%s' % (self.imind + 1, self.nims, size, pixel))
 
     def _invert_y(self):
         try:
@@ -919,6 +946,13 @@ class IV(QMainWindow):
             self.y_start += (delta_y - self.prev_delta_y)
             self.prev_delta_x = delta_x
             self.prev_delta_y = delta_y
+        elif event.inaxes:
+            im = self.get_img(tonemap=False, decorate=False)
+            print(im.shape)
+            x = np.maximum(0, np.minimum(im.shape[1] - 1, int(event.xdata + 0.5)))
+            y = np.maximum(0, np.minimum(im.shape[0] - 1, int(event.ydata + 0.5)))
+            pixel = {'value': im[y, x], 'x': x, 'y': y}
+            self._update_info(pixel)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
