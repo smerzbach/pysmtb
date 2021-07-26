@@ -244,6 +244,7 @@ class IV(QMainWindow):
         self.xmaxs = []
         self.ymins = []
         self.ymaxs = []
+        self.overlay_ths = []
         self._compute_crop_bounds()
         self._init_ui()
 
@@ -774,21 +775,35 @@ class IV(QMainWindow):
         for kid in kids:
             if isinstance(kid, matplotlib.text.Text):
                 kid.set_visible(False)
-        lims = self.ih.axes.axis()
-        inds = (np.array(lims) + 0.5).astype(np.int32)
         im = self.ih.get_array()
-        im = im[inds[3]: inds[2], inds[0]: inds[1], :]
+        lims = np.array(self.ih.axes.axis())
+        lims[0] = np.maximum(0, lims[0])
+        lims[1] = np.minimum(im.shape[0], lims[1])
+        lims[2] = np.minimum(im.shape[1], lims[2])
+        lims[3] = np.maximum(0, lims[3])
+        inds = (np.array(lims) + 0.5).astype(np.int32)
         xs = np.r_[inds[0]: inds[1]]
         ys = np.r_[inds[3]: inds[2]]
-
+        
+        for th in self.overlay_ths:
+            try:
+                th.remove()
+            except:
+                pass
+        ths = []
+        rgb2lum = np.r_[0.299, 0.587, 0.114]
         for xi, x0 in enumerate(xs):
             for yi, y0 in enumerate(ys):
                 pixel = im[yi, xi, :]
-                color = (pixel + 0.5) % 1.
-                if im.ndim == 3 and im.shape[2] == 3:
-                    th = self.ax.text(x0, y0 + 1.0, '% 6.3f\n% 6.3f\n% 6.3f\n' % tuple(pixel), fontsize=10, color=color)
+                if np.sum(rgb2lum * pixel) > 0.5:
+                    color = np.r_[0., 0., 0.]
                 else:
-                    th = self.ax.text(x0, y0 + 1.0, '% 6.3f' % im[0, 0], fontsize=10, color=color)
+                    color = np.r_[1., 1., 1.]
+                if im.ndim == 3 and im.shape[2] == 3:
+                    ths.append(self.ax.text(x0 - 0.5, y0 + 0.5, '% 6.3f\n% 6.3f\n% 6.3f\n' % tuple(pixel), fontsize=8, color=color))
+                else:
+                    ths.append(self.ax.text(x0 - 0.5, y0 + 0.5, '% 6.3f' % im[0, 0], fontsize=8, color=color))
+        self.overlay_ths = ths
         self.fig.canvas.draw()
 
     def tonemap(self, im):
