@@ -17,7 +17,10 @@ def quiver3(xyz, uvw, *args, **kwargs):
     return _plot3d('quiver', xyz, uvw, *args, **kwargs)
 
 
-def text3(xyz, strings, *args, **kwargs):
+def text3(xyz, strings=None, *args, **kwargs):
+    if strings is None:
+        n = xyz.size // 3
+        strings = ['%d' % i for i in range(n)]
     return _plot3d('text', xyz, strings, *args, **kwargs)
 
 
@@ -29,6 +32,7 @@ def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip
     else:
         axes_provided = True
 
+    xyz = np.atleast_2d(xyz)
     if xyz.ndim == 2 and xyz.shape[1] == 3 and xyz.shape[0] != 3:
         xyz = xyz.T
     x = xyz[0, :]
