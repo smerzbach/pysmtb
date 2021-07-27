@@ -1,5 +1,9 @@
 from copy import deepcopy
-import colour
+try:
+    import colour
+except ModuleNotFoundError:
+    colour = None
+    pass
 import numpy as np
 try:
     import torch
@@ -42,24 +46,25 @@ if __name__ == "__main__":
     v = iv.iv(dict(tight=coll_tight, non_tight=coll), collage=True, collageBorderWidth=1, collageBorderValue=1, annotate=True)
     v = iv.iv(ims1, ims2, ims3, collage=True, collageBorderWidth=1)
 
-    # def interval(n):
-    #     return deepcopy(cmfs).align(colour.SpectralShape(250., 800., (800. - 250.) / n)).shape.interval
-    #
-    # intervals = {n: interval(n) for n in range(6, 100)}
+    if color is not None:
+        # def interval(n):
+        #     return deepcopy(cmfs).align(colour.SpectralShape(250., 800., (800. - 250.) / n)).shape.interval
+        #
+        # intervals = {n: interval(n) for n in range(6, 100)}
 
-    wl0 = 250.
-    wl1 = 800.
-    wl_range = wl1 - wl0
-    num_bands = 30
-    spec_shape = colour.SpectralShape(wl0, wl1, wl_range / (num_bands - 1))
+        wl0 = 250.
+        wl1 = 800.
+        wl_range = wl1 - wl0
+        num_bands = 30
+        spec_shape = colour.SpectralShape(wl0, wl1, wl_range / (num_bands - 1))
 
-    cmfs = deepcopy(colour.MSDS_CMFS['CIE 1931 2 Degree Standard Observer'])
-    cmfs = cmfs.align(shape=spec_shape)
+        cmfs = deepcopy(colour.MSDS_CMFS['CIE 1931 2 Degree Standard Observer'])
+        cmfs = cmfs.align(shape=spec_shape)
 
-    illuminant = colour.SDS_ILLUMINANTS['D65']
-    illuminant = illuminant.align(spec_shape)
-    im = colour.msds_to_XYZ(np.random.rand(10, 10, num_bands), cmfs, illuminant, method='Integration', shape=spec_shape)
-    iv.iv(im)
+        illuminant = colour.SDS_ILLUMINANTS['D65']
+        illuminant = illuminant.align(spec_shape)
+        im = colour.msds_to_XYZ(np.random.rand(10, 10, num_bands), cmfs, illuminant, method='Integration', shape=spec_shape)
+        iv.iv(im)
 
     # test mixed inputs & collage
     if torch is not None:
