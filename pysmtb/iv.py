@@ -348,9 +348,11 @@ class IV(QMainWindow):
 
         # add spectral to RGB conversion options
         self.uiCBSpecCMFs = _add_widget(width, QComboBox, None, 'activated', self._callback_combobox, self.spec_cmf_names)
-        self.uiCBSpecCMFs.setCurrentIndex(np.where([name == self.spec_cmf_selected_name for name in self.spec_cmf_names])[0][0])
+        cmf_ind = np.where([name == self.spec_cmf_selected_name for name in self.spec_cmf_names])[0]
+        self.uiCBSpecCMFs.setCurrentIndex(cmf_ind[0] if len(cmf_ind) else 0)
         self.uiCBSpecIlluminants = _add_widget(width, QComboBox, None, 'activated', self._callback_combobox, self.spec_illuminant_names)
-        self.uiCBSpecIlluminants.setCurrentIndex(np.where([name == self.spec_illuminant_selected_name for name in self.spec_illuminant_names])[0][0])
+        illum_ind = np.where([name == self.spec_illuminant_selected_name for name in self.spec_illuminant_names])[0]
+        self.uiCBSpecIlluminants.setCurrentIndex(illum_ind[0] if len(illum_ind) else 0)
         self.uiLESpecWL0 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl0)
         self.uiLESpecWL1 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl1)
 
