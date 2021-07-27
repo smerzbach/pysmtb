@@ -16,6 +16,19 @@ except:
     pass
 
 
+def find_dim(inp, size=3):
+    """return first dimension that matches the given size"""
+    dim = np.where(np.array(inp.shape) == size)[0]
+    if not len(dim):
+        raise Exception('none of the input dimensions is %d: %s' % (size, str(inp.shape)))
+    return dim[0]
+
+
+def dims_execpt(inp, dim):
+    """return all except the specified dimension indices"""
+    return tuple(np.r_[[d for d in range(inp.ndim) if d != dim]])
+
+
 def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1,
                    x=0, y=0, overlay=False, overlay_color=1., overlay_bbox=None):
     from PIL import Image
