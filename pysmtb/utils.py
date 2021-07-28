@@ -107,7 +107,18 @@ def pad(image, new_width, new_height, new_num_channels=None, value=0., center=Tr
     return image
 
 
-def collage(images, dim=-1, **kwargs):
+def collage(images, dim=-1,
+            nc=None, # number of columns
+            nr=None, # number of rows
+            bw=0, # border width
+            bv=0, # border value
+            transpose=False,
+            transpose_ims=False,
+            tight=True, # pack images tightly in each row / column (False: all images will be padded to the same size)
+            crop=False, # crop margins in each image, enabling even tighter packing
+            crop_value=0, # pixel value that will be considered as margin
+            crop_global=False, # determine margin globally, i.e., the minimum over all images
+            **kwargs):
     """assemble a list of images or an ndarray into an nr x nc mosaic of sub-images, optionally with border separating
     the images, by default sub-images are packed tightly, i.e. they are padded per row and column with the minimal
     necessary margin to allow concatenation; optionally the entire collage or individual images can be transposed"""
@@ -120,15 +131,10 @@ def collage(images, dim=-1, **kwargs):
     if isinstance(images, list):
         images = [np.atleast_3d(im) for im in images]
 
-    nims = len(images)
+    if crop:
+        images = crop_bounds(images, apply=True, crop_global=crop_global, background=crop_value)['images']
 
-    tight = kwargs.get('tight', True)  # pack images tightly in each row / column
-    nc = kwargs.get('nc', None)  # number of columns
-    nr = kwargs.get('nr', None)  # number of rows
-    bw = kwargs.get('bw', 0)  # border width
-    bv = kwargs.get('bv', 0)  # border value
-    transpose = kwargs.get('transpose', False)
-    transpose_ims = kwargs.get('transposeIms', kwargs.get('transpose_ims', False))
+    nims = len(images)
 
     if 'fill_value' in kwargs:
         from warnings import warn
