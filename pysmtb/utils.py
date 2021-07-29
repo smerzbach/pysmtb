@@ -29,6 +29,25 @@ def dims_execpt(inp, dim):
     return tuple(np.r_[[d for d in range(inp.ndim) if d != dim]])
 
 
+def assign_masked(mask: np.ndarray, values: np.ndarray, buffer: np.ndarray = None, init_val: float = 0.):
+    """given an h x w binary mask, an array with nnz(mask) x nc_vals elements, and optionally a buffer (either empty or
+    pre-allocated with h * w * nc_vals elements), assign the values array at those entries of buffer where mask is
+    True; return buffer with shape h x w x nc_vals"""
+    s = np.atleast_2d(values).shape
+    num_vals = s[0]
+    nc_vals = s[1:]
+    h, w, _ = np.atleast_3d(mask).shape
+    nnz_mask = np.count_nonzero(mask)
+    assert nnz_mask == num_vals, 'values must be nnz_mask x nc'
+    if buffer is None:
+        buffer = init_val * np.ones((h, w) + nc_vals, dtype=np.float32)
+    assert buffer.size == h * w * np.prod(nc_vals), 'buffer must have %d * %d * %d elements, got %d' % (h, w, nc_vals, buffer.size)
+    buffer = buffer.reshape((h * w,) + nc_vals)
+    buffer[mask.ravel(), :] = values
+    buffer = buffer.reshape((h, w) + nc_vals)
+    return buffer
+
+
 def annotate_image(image, label, font_path=None, font_size=16, font_color=[1.], stroke_color=[0.], stroke_width=1,
                    x=0, y=0, overlay=False, overlay_color=1., overlay_bbox=None):
     from PIL import Image
