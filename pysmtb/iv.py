@@ -1087,7 +1087,7 @@ class IV(QMainWindow):
         c = QApplication.clipboard()
         c.setImage(im)
 
-    def save(self, ofname=None, zoomed=False, canvas=True):
+    def save(self, ofname=None, zoomed=False, canvas=False):
         try:
             if ofname is None:
                 dialog = QFileDialog()
