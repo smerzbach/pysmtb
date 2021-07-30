@@ -6,9 +6,23 @@ python toolbox of image and rendering related helper / visualization functions
 [TOC]
 
 ## Installation
+
+pysmtb is available on pypi.org and can be installed via pip in most environments:
+
 ```shell
 pip install pysmtb
 ```
+
+
+
+Alternatively, this Git repository can be cloned and an environment can be set up manually using conda:
+
+```
+conda env create -f environment.yml
+conda activate pysmtb
+```
+
+
 
 ## Interactive image viewer
 

@@ -1,0 +1,12 @@
+name: pysmtb
+channels:
+  - defaults
+dependencies:
+  - python=3.8
+  - matplotlib
+  - numpy
+  - pyembree
+  - trimesh
+  - imageio
+  - pyglet
+  - scipy
