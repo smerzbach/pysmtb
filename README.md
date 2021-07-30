@@ -3,7 +3,9 @@ python toolbox of image and rendering related helper / visualization functions
 
 ## Contents
 
-[TOC]
+* [Installation](#installation)
+* [Interactive image viewer](#interactive-image-viewer)
+* [Deferred rendering using PyEmbree](#deferred-rendering-using-pyembree)
 
 ## Installation
 
