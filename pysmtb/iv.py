@@ -5,7 +5,6 @@ Created on Thu Oct 18 19:24:05 2018
 @author: merzbach
 
 """
-
 from copy import deepcopy
 from datetime import datetime
 from functools import wraps
@@ -14,6 +13,7 @@ try:
 except:
     pass
 import imageio
+import json
 import numpy as np
 import os
 import sys
@@ -207,9 +207,12 @@ class IV(QMainWindow):
         self.collage_nc = nc
         self.collage_border_width = kwargs.get('collageBorderWidth', 0)
         self.collage_border_value = kwargs.get('collageBorderValue', 0.)
+        self.has_alpha = kwargs.get('has_alpha', False)
+        self.blend_alpha = kwargs.get('blend_alpha', False)
+        self.background = kwargs.get('background', 0.0)
         self.crop = kwargs.get('crop', False)
         self.crop_global = kwargs.get('crop_global', True)
-        self.crop_background = kwargs.get('crop_background', 0)
+        self.crop_background = kwargs.get('crop_background', 0.0)
         self.zoom_factor = 1.1
         self.x_zoom = True
         self.y_zoom = True
@@ -338,9 +341,12 @@ class IV(QMainWindow):
             self.uiLECollageNc = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_nc)
             self.uiLECollageBW = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_width)
             self.uiLECollageBV = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.collage_border_value)
+        self.uiCBHasAlpha = _add_widget(width // 2, QCheckBox, 'available', 'stateChanged', self._callback_check_box, self.has_alpha)
+        self.uiCBBlendAlpha = _add_widget(width // 2, QCheckBox, 'blend', 'stateChanged', self._callback_check_box, self.blend_alpha)
         self.uiCBCrop = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.crop)
         self.uiCBCropGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, self.crop_global)
         self.uiLECropBackground = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.crop_background)
+        self.uiLEBackground = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.background)
         self.uiCBAnnotate = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.annotate)
         self.uiCBAnnotateNumbers = _add_widget(width // 2, QCheckBox, 'numbers', 'stateChanged', self._callback_check_box, self.annotate_numbers)
         self.uiLEFontSize = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_size)
@@ -404,8 +410,10 @@ class IV(QMainWindow):
             _add_row(QLabel('NR x NC:'), _multicolumn(self.uiLECollageNr, self.uiLECollageNc))
             _add_row(QLabel('BW x BV:'), _multicolumn(self.uiLECollageBW, self.uiLECollageBV))
             _add_row(_hdiv())
+        _add_row(QLabel('alpha:'), _multicolumn(self.uiCBHasAlpha, self.uiCBBlendAlpha))
+        _add_row(_hdiv())
         _add_row(QLabel('crop:'), _multicolumn(self.uiCBCrop, self.uiCBCropGlobal))
-        _add_row(QLabel('crop bgrnd:'), self.uiLECropBackground)
+        _add_row(QLabel('crop bgrnd:'), _multicolumn(self.uiLECropBackground, self.uiLEBackground))
         _add_row(_hdiv())
         _add_row(QLabel('annotate:'), _multicolumn(self.uiCBAnnotate, self.uiCBAnnotateNumbers))
         _add_row(QLabel('font size:'), self.uiLEFontSize)
@@ -480,8 +488,17 @@ class IV(QMainWindow):
         QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self._toggle_autoscale_use_prctiles)
 
     def _callback_line_edit(self, ui, *args):
+        tmp = ui.text()
         try:
-            tmp = float(ui.text())
+            try:
+                tmp = json.loads(tmp)
+                if isinstance(tmp, list):
+                    tmp = np.array(tmp)
+            except json.decoder.JSONDecodeError:
+                try:
+                    tmp = float(tmp)
+                except:
+                    return
         except:
             return
         
@@ -535,6 +552,9 @@ class IV(QMainWindow):
             self.crop_background = tmp
             self._compute_crop_bounds()
             self._display_image()
+        elif ui == self.uiLEBackground:
+            self.background = tmp
+            self._display_image()
         elif hasattr(self, 'uiLESpecWL0') and ui == self.uiLESpecWL0:
             self.spec_wl0 = tmp
             self._display_image()
@@ -573,6 +593,12 @@ class IV(QMainWindow):
             self._display_image()
         elif hasattr(self, 'uiCBCollageTransposeIms') and ui == self.uiCBCollageTransposeIms:
             self.collageTransposeIms = bool(state)
+            self._display_image()
+        elif ui == self.uiCBHasAlpha:
+            self.has_alpha = bool(state)
+            self._display_image()
+        elif ui == self.uiCBBlendAlpha:
+            self.blend_alpha = bool(state)
             self._display_image()
         elif ui == self.uiCBCrop:
             self.crop = bool(state)
@@ -808,17 +834,47 @@ class IV(QMainWindow):
         self.overlay_ths = ths
         self.fig.canvas.draw()
 
+    def blend(self, im, alpha):
+        """perform alpha blending of input image and some user-specified background"""
+        bgrnd = np.array(self.background)
+        while bgrnd.ndim < 3:
+            bgrnd = bgrnd[None]
+        if im.shape[2] == 1 and bgrnd.shape[2] > im.shape[2]:
+            # handle intensity image with RGB background
+            im = np.repeat(im, bgrnd.shape[2], axis=2)
+        return alpha * im + (1 - alpha) * bgrnd
+
     def tonemap(self, im):
         """apply simple scaling & gamma based tonemapping to HDR image, convert spectral to RGB"""
         # TODO: add color mapping for single channel images
         if isinstance(im, np.matrix):
             im = np.array(im)
+
         if im.shape[2] == 1:
+            # L
             im = np.repeat(im, 3, axis=2)
-        elif im.shape[2] == 2:
+        elif im.shape[2] == 2 and self.has_alpha and self.blend_alpha:
+            # LA
+            im = self.blend(im[:, :, 0:1], im[:, :, 1:2])
+            if im.shape[2] == 1:
+                im = np.repeat(im, 3, axis=2)
+        elif im.shape[2] == 2 and self.has_alpha and not self.blend_alpha:
+            # discard A from LA
+            im = np.repeat(im[:, :, 0:1], 3, axis=2)
+        elif im.shape[2] == 2 and not self.has_alpha:
+            # RG -> RGB
             im = np.concatenate((im, np.zeros((im.shape[0], im.shape[1], 1), dtype=im.dtype)), axis=2)
+        elif im.shape[2] == 3:
+            # RGB
+            pass
+        elif im.shape[2] == 4 and self.has_alpha and self.blend_alhpa:
+            # RGBA
+            im = self.blend(im[:, :, :3], im[:, :, 3:4])
+        elif im.shape[2] == 4 and self.has_alpha and not self.blend_alhpa:
+            # discard A from RGBA
+            im = im[:, :, :3]
         elif im.shape[2] != 3:
-            # project to RGB
+            # project spectral to RGB
             if colour is None:
                 raise NotImplemented('please install the colour-science package (pip install colour-science)')
 
