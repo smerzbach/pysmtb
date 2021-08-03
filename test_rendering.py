@@ -1,11 +1,12 @@
+from copy import deepcopy
 import numpy as np
+from tqdm import tqdm
 import trimesh
 from trimesh import Trimesh
 from trimesh.visual import TextureVisuals
 from pysmtb.rendering import normalize, create_unit_sphere, create_unit_cube, \
     embree_intersect_scene, interpolate_vertex_attributes, get_local_dirs, get_bbox
-from pysmtb.rendering import embree_create_scene, embree_render_deferred
-
+from pysmtb.rendering import embree_create_scene, embree_render_deferred, cam_auto_zoom_trajectory
 from pysmtb.plotting import plot3, quiver3, scatter3, text3
 from pysmtb.utils import Dct, assign_masked
 
@@ -13,6 +14,51 @@ from pysmtb.iv import iv
 import matplotlib.pyplot as plt
 plt.switch_backend('qt5agg')
 plt.ion()
+
+
+
+# given initial camera position, rotate camera on a trajectory around the scene, setting focal length such that the
+# entire scene is enclosed on the camera sensor at each position
+meshes = []
+meshes.append(create_unit_sphere(40))
+cube = create_unit_cube()
+# create shifted copies of cube
+cube.vertices += np.r_[1.5, 0., 0.][None]
+meshes.append(deepcopy(cube))
+cube.vertices += np.r_[-3, 0., 1.][None]
+meshes.append(deepcopy(cube))
+cube.vertices += np.r_[0, -2., -2.][None]
+meshes.append(deepcopy(cube))
+cube.vertices += np.r_[-1, 2., 0.5][None]
+meshes.append(deepcopy(cube))
+all_vertices = np.concatenate([mesh.vertices for mesh in meshes], axis=0)
+
+bbox = get_bbox(meshes)
+bbox_diam = np.linalg.norm(np.diff(bbox, axis=0))
+
+# ray trace scene (after automatic camera adjustments)
+cam = Dct(res_x=384, res_y=256)
+# cam.position = np.r_[0.68372341, -2.05557506, -1.5378463]
+
+num_positions = 15
+angles = np.linspace(0, 2 * np.pi, num_positions + 1)[:-1]
+cam_dirs = np.stack((np.cos(angles), np.zeros_like(angles), np.sin(angles)), axis=1)
+cam_distance = 2 * bbox_diam
+cam_positions = np.mean(bbox, axis=0, keepdims=True) + cam_distance * cam_dirs
+cam, extrinsics = cam_auto_zoom_trajectory(vertices=all_vertices, cam_positions=cam_positions, cam=cam, use_bbox=False)
+
+light_pos = cam_positions[0]
+
+renderings = []
+for i in tqdm(range(num_positions), 'rendering'):
+    cam.position = cam_positions[i]
+    cam.extrinsics = extrinsics[i]
+    buffers = embree_render_deferred(meshes, with_tangent_frames=True, cam=cam, auto_cam=False, light_position=light_pos)
+    renderings.append(buffers.hit)
+    renderings.append(assign_masked(buffers.hit, buffers.Ng))
+    # renderings.append(assign_masked(buffers.hit, buffers.uvs))
+
+v = iv(renderings[1::2])
 
 # load / create geometry
 sphere = create_unit_sphere(40)

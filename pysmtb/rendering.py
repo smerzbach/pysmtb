@@ -33,7 +33,7 @@ missing features:
 - camera distortion model
 - fallback tangent computing for meshes without texture coordinates
 """
-
+from copy import deepcopy
 import numpy as np
 from pyembree.rtcore_scene import EmbreeScene
 from pyembree.mesh_construction import TriangleMesh
@@ -432,9 +432,33 @@ def trimesh_to_dict(mesh: Trimesh):
                uvs=get_uv_coords(mesh))
 
 
+def cam_extrinsics(cam):
+    """compute camera's extrinsics matrix given position, lookat and up vectors in the input dict"""
+    if not hasattr(cam, 'forward'):
+        cam.forward = normalize(cam.lookat - cam.position)
+
+    if not hasattr(cam, 'up'):
+        cam.up = np.r_[0., 1., 0.]
+
+    # re-orthonormalization
+    cam_side = normalize(np.cross(cam.up, cam.forward))
+    cam.up = normalize(np.cross(cam.forward, cam_side))
+
+    # set up extrinsics matrix
+    cam.extrinsics = np.r_[np.r_[np.r_[cam_side[None], cam.up[None], cam.forward[None]].T, np.r_[0., 0., 0.][None]].T, np.r_[cam.position, 1.][None]].T
+
+    return cam
+
+
 def set_tight_cam(vertices, cam: dict = None, use_bbox: bool = True, visualize: bool = False):
-    """automatically set camera parameters to enclose a scene (either all vertices, or their axis aligned bounding box)
-     in the view frustum"""
+    # backward compatibility
+    warn('set_tight_cam() is deprecated and should be replaced by cam_auto_zoom()')
+    return cam_auto_zoom(vertices=vertices, cam=cam, use_bbox=use_bbox, visualize=visualize)
+
+
+def cam_auto_zoom(vertices, cam: dict = None, use_bbox: bool = True, visualize: bool = False, debug: bool = False):
+    """automatically set camera focal length to enclose a scene (either all vertices, or their axis aligned bounding
+    box) in the view frustum"""
     if not isinstance(vertices, np.ndarray) and not isinstance(vertices, list):
         raise Exception('vertices must be nv x 3 np.ndarray or list of such arrays')
 
@@ -459,23 +483,20 @@ def set_tight_cam(vertices, cam: dict = None, use_bbox: bool = True, visualize: 
         cam.cx = cam.res_x / 2.
         cam.cy = cam.res_y / 2.
 
-    if not hasattr(cam, 'position'):
-        random_dir = normalize(np.random.rand(3) - 0.5)
-        random_dist = (bbox_diam / 2 + 10. * np.random.rand())
-        cam.position = scene_center + random_dist * random_dir
+    if not hasattr(cam, 'extrinsics'):
+        if not hasattr(cam, 'position'):
+            random_dir = normalize(np.random.rand(3) - 0.5)
+            random_dist = (bbox_diam / 2 + 10. * np.random.rand())
+            cam.position = scene_center + random_dist * random_dir
 
-    if not hasattr(cam, 'forward'):
-        cam.forward = normalize(scene_center - cam.position)
+        if not hasattr(cam, 'lookat'):
+            cam.lookat = scene_center
 
-    if not hasattr(cam, 'up'):
-        cam.up = np.r_[0., 1., 0.]
+        if not hasattr(cam, 'up'):
+            cam.up = np.r_[0., 1., 0.]
 
-    # re-orthonormalization
-    cam_side = normalize(np.cross(cam.up, cam.forward))
-    cam.up = normalize(np.cross(cam.forward, cam_side))
-
-    # set up extrinsics matrix
-    cam.extrinsics = np.r_[np.r_[np.r_[cam_side[None], cam.up[None], cam.forward[None]].T, np.r_[0., 0., 0.][None]].T, np.r_[cam.position, 1.][None]].T
+        # compute extrinsics matrix from position, lookat and up vectors
+        cam = cam_extrinsics(cam)
 
     # bring bbox corners into camera space
     corners_cam = (np.linalg.inv(cam.extrinsics) @ np.r_[vertices.T, np.ones((vertices.shape[0], 1)).T]).T[:, :3]
@@ -525,6 +546,11 @@ def set_tight_cam(vertices, cam: dict = None, use_bbox: bool = True, visualize: 
 
     cam.intrinsics = np.array([[cam.fx, 0., cam.cx], [0., cam.fy, cam.cy], [0., 0., 1.]])
 
+    if debug:
+        output = Dct(cam=cam, corners_projected=corners_projected, bbox_projected=bbox_projected)
+    else:
+        output = cam
+
     if visualize:
         corners_bbox_projected_world = (cam.extrinsics @ np.r_[get_bbox_corners(bbox_projected).T, np.ones((8, 1)).T]).T[:, :3]
         ray_origins, ray_dirs = create_rays(cam)
@@ -548,7 +574,49 @@ def set_tight_cam(vertices, cam: dict = None, use_bbox: bool = True, visualize: 
 
         scatter3(ray_origins[::3*123] + ray_dirs[::3*123], marker='.', axes=ax)
         # quiver3(ray_origins[::123], ray_dirs[::123], axes=ax)
-    return cam
+    return output
+
+
+def cam_auto_zoom_trajectory(vertices, cam_positions, cam: dict = None, use_bbox: bool = True, visualize: bool = False):
+    """given scene vertices and an N x 3 array of camera positions, as well as a camera dict with initial intrisics
+    (resolution, principal point, ...), set the camera's focal length to ensure the projected scene is always contained
+    in the view frustum; returns cam dict with fx and fy set to the mininum over all focal lengths, as well as a list of
+    extrinsics matrices corresponding to the camera positions"""
+    cam_orig = deepcopy(cam)
+    lookat = np.mean(get_bbox(vertices), axis=0)
+    fx = []
+    fy = []
+    extrinsics = []
+    centers = []
+    corners_projected = []
+    bbox_projected = []
+    for cam_pos in cam_positions:
+        cam = deepcopy(cam_orig)
+        cam.position = cam_pos
+        cam.lookat = lookat
+        cam = cam_extrinsics(cam)
+
+        debug = cam_auto_zoom(vertices=vertices, cam=cam, use_bbox=use_bbox, debug=True)
+        corners_projected.append(debug.corners_projected)
+        bbox_projected.append(debug.bbox_projected)
+        cam = debug.cam
+        centers.append(cam.lookat)
+        fx.append(cam.fx)
+        fy.append(cam.fy)
+        extrinsics.append(cam.extrinsics)
+    # final focal length is the minimum (largest field of view) over each position's focal length
+    cam.fx = np.min(fx)
+    cam.fy = np.min(fy)
+
+    if visualize:
+        from pysmtb.plotting import scatter3
+        sh = scatter3(vertices, '.')
+        ax = sh.axes
+        scatter3(cam_positions, 's', axes=ax)
+        scatter3(np.array([(ex @ np.concatenate((bbp, np.ones((bbp.shape[0], 1))), axis=1).T).T[:, :3] for ex, bbp in
+                           zip(extrinsics, bbox_projected)]).reshape((-1, 3)), '.', axes=ax)
+
+    return cam, extrinsics
 
 
 def create_rays(cam, repeat_origin=True, xs: np.ndarray = None, ys: np.ndarray = None):
@@ -611,7 +679,7 @@ def embree_create_scene(meshes,
             all_vertices.append(mesh.vertices)
 
     if auto_cam:
-        cam = set_tight_cam(bbox if auto_cam_bbox else all_vertices, cam=cam, use_bbox=auto_cam_bbox, visualize=auto_cam_visualize)
+        cam = cam_auto_zoom(bbox if auto_cam_bbox else all_vertices, cam=cam, use_bbox=auto_cam_bbox, visualize=auto_cam_visualize)
     return scene, cam
 
 
