@@ -7,13 +7,57 @@ Created on Wed Jan 14 23:01:57 2020
 import numpy as np
 import os
 import re
+import subprocess
 import sys
-from typing import Dict
+from typing import Dict, Union
 
 try:
     import torch
 except:
     pass
+
+
+def execute(args: Union[str, list],
+          logfile: str = None,
+          universal_newlines: bool = True,
+          shell: bool = False,
+          **kwargs):
+    """run external command (by default with low priority), capture and print its output; returns return code and log"""
+    if logfile is not None:
+        logfile = open(logfile, 'w')
+
+    creationflags = 0
+    try:
+        # only available on Windows...
+        creationflags |= subprocess.IDLE_PRIORITY_CLASS
+    except:
+        pass
+
+    log = []
+    process = subprocess.Popen(args,
+                               stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT,
+                               creationflags=creationflags,
+                               universal_newlines=universal_newlines,
+                               shell=shell,
+                               **kwargs)
+
+    while True:
+        # print command output and write to log if requested
+        output = process.stdout.readline()
+        returncode = process.poll()
+        if output == '' and returncode is not None:
+            # process finished
+            break
+        if output:
+            print(output.strip())
+            log.append(output)
+            if logfile is not None:
+                logfile.write(output)
+
+    if logfile is not None:
+        logfile.close()
+    return returncode, log
 
 
 def find_dim(inp, size=3):
