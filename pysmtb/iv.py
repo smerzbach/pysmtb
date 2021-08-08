@@ -1143,7 +1143,7 @@ class IV(QMainWindow):
         c = QApplication.clipboard()
         c.setImage(im)
 
-    def save(self, ofname=None, zoomed=False, canvas=False):
+    def save(self, ofname=None, zoomed=False, canvas=False, animation=False):
         try:
             if ofname is None:
                 dialog = QFileDialog()
@@ -1153,8 +1153,10 @@ class IV(QMainWindow):
             if ofname is None or not len(ofname):
                 return
             self.ofname = ofname
-            im = self.get_img()
+            if os.path.splitext(ofname)[1].lower() in ['.gif', '.webp', '.mp4']:
+                animation = True
             if zoomed:
+                im = self.get_img()
                 h, w = im.shape[:2]
                 limits = self.ax.axis()
                 x0 = np.max([0, int(limits[0] + 0.5)])
@@ -1175,6 +1177,14 @@ class IV(QMainWindow):
                 width_axes = extent.width
                 height_axes = extent.height
                 image = image[: int(height_axes), : int(width_axes), :]
+            elif animation:
+                from pysmtb.utils import write_video
+                ims = self.get_imgs(tonemap=True, decorate=False)
+                if os.path.splitext(ofname)[1].lower() not in ['.webp', '.mp4', '.gif']:
+                    print('unexpected file extension: %s' % os.path.splitext(ofname)[1].lower())
+                else:
+                    write_video(filename=ofname, frames=ims)
+                return
             else:
                 image = np.array(self.ih.get_array())
             imageio.imwrite(ofname, image)

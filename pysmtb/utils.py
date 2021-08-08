@@ -446,67 +446,209 @@ def clamp(arr, lower=0, upper=1):
     return arr
 
 
+def tonemap(image: np.ndarray, offset: float = 0.0, scale: float = 1.0, gamma: float = 1.0, as_uint8: bool = False,
+            alpha: Union[np.ndarray, bool] = None, background: Union[np.ndarray, list, tuple] = (0., 0., 0.)):
+    """apply simple scaling & gamma correction to HDR image; returns tonemapped 3D array clamped to [0, 1], optionally
+    with alpha blending against a specified background, where alpha mask is either user specified as np.ndarray, or set
+    to True when input image is in RGBA format; if background is set to None, the alpha channel will simply be stored
+    as fourth channel in the tonemapped image again"""
+    image = np.atleast_3d(image)
+
+    if image.shape[2] == 4:
+        # split alpha channel if available and requested
+        if isinstance(alpha, bool) and alpha:
+            alpha = image[:, :, 3:4]
+            image = image[:, :, :3]
+
+    # the actual tonemapping
+    image = np.clip(scale * (image.astype(np.float32) - offset), 0., 1.) ** (1. / gamma)
+
+    # alpha blending
+    if alpha is not None:
+        alpha = np.atleast_3d(alpha)
+        if background is not None:
+            background = np.array(background)
+            while background.ndim < 3:
+                # add fake spatial dimensions
+                background = background[None]
+            assert background.shape[2] == image.shape[2], 'background has %d channels but image has %d'\
+                                                          % (background.shape[2], image.shape[2])
+            image = alpha * image + (1 - alpha) * background
+        else:
+            # if background is disabled, don't blend, just write the alpha channel back (e.g. for PNG or WEBP export)
+            image = np.concatenate((image, alpha), axis=2)
+
+    # casting to uint8
+    if as_uint8:
+        image = (255 * image).astype(np.uint8)
+    return image
+
+
+def video_writer(filename: str, vcodec: str = 'libx264', framerate: float = 25,
+                 lossless: bool = False, quality: float = 0.75, pix_fmt: str = 'yuv420p',
+                 loop: Union[bool, int] = 0, verbosity: int = 0, ffmpeg_path=None, **kwargs):
+    import skvideo
+
+    # override ffmpeg to support more codecs (e.g. webp is not supported by conda's ffmpeg)
+    if ffmpeg_path is None:
+        ffmpegs = []
+        for path in os.get_exec_path():
+            ffmpeg = os.path.join(path, 'ffmpeg.exe' if sys.platform == 'win32' else 'ffmpeg')
+            if os.path.exists(ffmpeg) and os.access(path, os.X_OK):
+                ffmpegs.append(ffmpeg)
+        if '/usr/bin/ffmpeg' in ffmpegs:
+            # prefer system ffmpeg over any bundled version
+            ffmpeg_path = '/usr/bin/ffmpeg'
+    if ffmpeg_path is not None:
+        if not os.path.isdir(ffmpeg_path):
+            # make sure we strip ffmpeg(.exe) from the provided path, as skvideo.setFFmpegPath() expects the containing
+            # directory only
+            path, exec = os.path.split(ffmpeg_path)
+            if exec.startswith('ffmpeg'):
+                ffmpeg_path = path
+        skvideo.setFFmpegPath(ffmpeg_path)
+
+    # the order of this import is relevant (needs to come after ffmpeg path was set)!
+    import skvideo.io
+
+    if isinstance(loop, bool):
+        # -loop 0 means endless looping
+        loop = 0 if loop else (-1 if vcodec == 'gif' else 1)
+
+    indict = {'-framerate': str(framerate)}
+    outdict = {
+        '-vcodec': vcodec,
+        '-framerate': str(framerate),
+    }
+
+    if not (0 <= quality and quality <= 1):
+        raise Exception('quality must be in [0, 1]')
+
+    if vcodec in ['libx264']:
+        profile = kwargs.pop('profile', 'high')
+
+        outdict.update({
+            '-profile:v': profile,
+            '-level:v': '4.0',
+            '-pix_fmt': pix_fmt,
+            '-filter_complex': '[0]pad=ceil(iw/2)*2:ceil(ih/2)*2',
+        })
+
+        preset = kwargs.pop('preset', 'high')
+        if preset not in ['lowest', 'lower', 'low', 'high', 'higher', 'highest']:
+            raise ValueError('for x264, preset must be one of lowest, lower, low, high, higher, highest')
+
+        crf = int(1 + 62 * (1 - quality))  # crf goes from 0 to 63, 0 being best quality
+        # crf = int(63 * (1 - quality))  # crf goes from 0 to 63, 0 being best quality
+        outdict['-q:v'] = str(int(quality * 100))
+        outdict['-crf'] = str(crf)
+
+    elif vcodec == 'libwebp':
+        # setting libwebp explicitly fails, so let's rely on ffmpeg's auto detection
+        outdict.pop('-vcodec', None)
+
+        preset = kwargs.get('preset', 'default')
+        if preset not in ['none', 'default', 'picture', 'photo', 'drawing', 'icon', 'text']:
+            raise ValueError('for webp, preset must be one of none, default, picture, photo, drawing, icon, text')
+
+        outdict['-preset'] = str(preset)
+        outdict['-loop'] = str(loop)
+        outdict['-compression_level'] = str(kwargs.pop('compression_level', 4))  # 0-6
+        if quality >= 1 or lossless:
+            outdict['-lossless'] = '1'
+        else:
+            outdict['-q:v'] = str(int(quality * 100))
+
+    elif vcodec == 'gif':
+        outdict['-loop'] = str(loop)
+        outdict['-final_delay'] = str(kwargs.pop('final_delay', '-1'))  # centi seconds
+    else:
+        raise NotImplementedError('video codec %s not implemented' % vcodec)
+    for key, value in kwargs.items():
+        if not key.startswith('-'):
+            key = '-' + key
+        outdict[key] = str(value)
+    writer = skvideo.io.FFmpegWriter(filename, inputdict=indict, outputdict=outdict, verbosity=verbosity)
+    return writer
+
+
+def write_video(filename: str, frames: Union[np.ndarray, list], offset: float = 0.0, scale: float = 1.0, gamma: float = 1.0,
+                masks: Union[np.ndarray, list, bool] = None, background: Union[np.ndarray, list, tuple] = None,
+                ffmpeg_path=None, verbosity: int = 0, **kwargs):
+    """given a sequence of frames (as 4D np.ndarray or as list of 3D np.ndarrays), export a video using FFMPEG;
+
+    codecs:
+    the codec is automatically derived from the file extension, currently supported are:
+     mp4, webp and gif
+
+    webp: it might be necessary to specify the path to the system ffmpeg since the one bundled with conda lacks webp
+    support
+
+    tonemapping:
+    the offset, scale & gamma arguments can be used to apply basic tonemapping
+
+    transparency / alpha blending:
+    it is possible to export transparent videos via webp (no support with other codecs) by providing alpha masks;
+    alternatively, the video sequence can be alpha blended against a background, either a constant value, color, or a
+    static background image
+
+    additional arguments:
+    all additional arguments will by passed through to the ffmpeg video writer, examples are:
+    vcodec: str = 'libx264'
+    framerate: float = 25
+    lossless: bool = False (only supported for webp)
+    quality: float = 0.75 (\in [0, 1])
+    profile: str (for x64 (mp4): \in {'lowest', 'lower', 'low', 'high', 'higher', 'highest'},
+             for webp: \in {'none', 'default', 'picture', 'photo', 'drawing', 'icon', 'text'})
+    pix_fmt: str = 'yuv420p'
+    loop: Union[bool, int] = 0
+    verbosity: int = 0
+    ffmpeg_path=None
+    """
+
+    requires_tonemapping = offset != 0. or scale != 1. or gamma != 1.
+    if frames[0].dtype == np.uint8:
+        if requires_tonemapping:
+            raise Exception('frames are already in uint8 format but tonemapping is requested')
+        if masks[0].dtype != np.uint8:
+            raise Exception('frames are in uint8 format but masks are not')
+        if background is not None:
+            raise Exception('frames are already in uint8 format but alpha blending is requested (background != None)')
+    else:
+        # non uint8 needs to be scaled and converted
+        requires_tonemapping = True
+
+    kwargs.update(dict(ffmpeg_path=ffmpeg_path))
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in ['.mp4', '.avi']:
+        writer = video_writer(filename=filename, verbosity=verbosity, **kwargs)
+    elif ext == '.webp':
+        # writer = video_writer(filename=filename, verbosity=verbosity, vcodec='libwebp', **kwargs)
+        writer = video_writer(filename=filename, verbosity=verbosity, vcodec='libwebp', **kwargs)
+    elif ext == '.gif':
+        writer = video_writer(filename=filename, verbosity=verbosity, vcodec='gif', **kwargs)
+    else:
+        raise NotImplementedError('unexpected file extension: ' + ext)
+    for fi, frame in enumerate(frames):
+        if masks is not None:
+            mask = masks[fi]
+        else:
+            mask = None
+        if requires_tonemapping:
+            frame = tonemap(frame, offset=offset, scale=scale, gamma=gamma, as_uint8=True, alpha=mask, background=background)
+        elif mask is not None:
+            # no tonemapping, no alpha blending, just concatenate alpha channel for transparency
+            frame = np.concatenate((np.atleast_3d(frame), np.atleast_3d(mask)), axis=2)
+        writer.writeFrame(frame)
+    writer.close()
+
+
 def write_mp4(frames, fname, extension='jpg', cleanup=True, fps=25, crf=10, scale=1, gamma=1,
               ffmpeg='/usr/bin/ffmpeg', digit_format='%04d', quality=95, verbosity=1):
-    """Write a sequence of frames as mp4 video file by writing temporary images and converting them with ffmpeg.
-
-    Arguments:
-    frames -- list / array of 2D or 3D numpy arrays holding grayscale or RGB images, alternatively this can be a list
-              of filenames to images already written to disk; the expected filename format is prefix_%04d.extension
-    fname -- relative / absolute path to output mp4 file (including extension)
-    
-    Keyword arguments:
-    extension -- file extension of temporary images (default 'jpg')
-    cleanup -- set this to True to remove temporary images (default True)
-    fps -- frames per second of output video (default 25)
-    crf -- constant rate factor parameter to ffmpeg, scalar between 0 (lossless) and 51 (worst quality) (default 10)
-    scale -- tonemapping scale, used to brighten or darken images (default 1.0)
-    gamma -- tonemapping gamma, used to stretch / squeeze dark or bright areas (default 1.0)
-    ffmpeg -- path to ffmpeg executable (default /usr/bin/ffmpeg)
-    digit_format -- numerical format of the running index in the filenames
-    """
-    import os
-    from PIL import Image
-    import tempfile
-    import subprocess
-    tmp = tempfile.TemporaryDirectory().name
-    os.makedirs(tmp)
-
-    if isinstance(frames[0], np.ndarray):
-        for fi in range(len(frames)):
-            frame = np.atleast_3d(frames[fi])
-            if frame.shape[0] % 2 != 0:
-                frame = frame[1:, :, :]
-            if frame.shape[1] % 2 != 0:
-                frame = frame[:, 1:, :]
-            if frame.ndim == 3 and frame.shape[2] == 1:
-                frame = frame[:, :, 0]
-            im = Image.fromarray((255 * np.clip(scale * frame, 0., 1.) ** (1. / gamma)).astype(np.uint8))
-            if verbosity > 1:
-                print('writing image to ' + os.path.join(tmp, 'frame_%04d.%s' % (fi, extension)))
-            kwargs = dict()
-            if extension.lower() == 'jpg':
-                kwargs['quality'] = quality
-            im.save(os.path.join(tmp, 'frame_' + (digit_format % fi) + '.' + extension), **kwargs)
-        prefix = os.path.join(tmp, 'frame_')
-    else:
-        if not isinstance(frames[0], str):
-            raise Exception('frames should be list of np.ndarrays or filenames')
-        prefix = frames[0]
-        prefix = prefix[:prefix.rfind('_') + 1]
-
-    cmd = [ffmpeg, '-y', '-framerate', str(fps), '-i', prefix + digit_format + '.' + extension, '-c:v',
-           'libx264', '-vf', 'fps=%d' % fps, '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-preset', 'veryslow', '-pix_fmt', 'yuv420p', '-crf', str(crf), fname]
-    if verbosity > 0:
-        print(' '.join(cmd))
-    stdout = subprocess.STDOUT if verbosity > 1 else subprocess.DEVNULL
-    res = subprocess.run(cmd, stdout=stdout, stderr=subprocess.STDOUT)
-
-    if cleanup:
-        for fi in range(len(frames)):
-            os.remove(prefix + (digit_format % fi) + '.' + extension)
-
-    return prefix
+    from warnings import warn
+    warn('write_mp4() is deprecated, use write_video() instead')
+    write_video(filename=fname, frames=frames, fps=fps, quality=1. - crf / 63, scale=scale, gamma=gamma,
+                ffmpeg_path=ffmpeg)
 
 
 def blur_image(image, blur_size=49, use_torch=False, filter_type='gauss'):
