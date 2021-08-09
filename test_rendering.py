@@ -62,6 +62,9 @@ if __name__ == '__main__':
     # given initial camera position, rotate camera on a trajectory around the scene, setting focal length such that the
     # entire scene is enclosed on the camera sensor at each position
     meshes = []
+    ply_cube = trimesh.load('data/cube.ply')
+    ply_cube = ply_cube.apply_translation(np.r_[1., 1., 1.])
+    meshes.append(ply_cube)
     meshes.append(create_unit_sphere(40))
     cube = create_unit_cube()
     # create shifted copies of cube

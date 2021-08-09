@@ -35,6 +35,7 @@ missing features:
 """
 from copy import deepcopy
 import numpy as np
+import trimesh.visual.texture
 from pyembree.rtcore_scene import EmbreeScene
 from pyembree.mesh_construction import TriangleMesh
 
@@ -63,12 +64,7 @@ def normalize(vec, axis=0):
 
 def get_vertices(mesh, join_geometries=False):
     """given an input mesh (trimesh.Trimesh, trimesh.Scene, dict), return the vertices as NV x 3 array"""
-    if isinstance(mesh, Trimesh) and 'ply_raw' in mesh.metadata.keys():
-        x = mesh.metadata['ply_raw']['vertex']['data']['x'].flatten()
-        y = mesh.metadata['ply_raw']['vertex']['data']['y'].flatten()
-        z = mesh.metadata['ply_raw']['vertex']['data']['z'].flatten()
-        vertices = np.stack((x, y, z), axis=1)
-    elif isinstance(mesh, Trimesh):
+    if isinstance(mesh, Trimesh):
         vertices = mesh.vertices
     elif isinstance(mesh, Scene):
         if not join_geometries and len(mesh.geometry) > 1:
@@ -85,12 +81,7 @@ def get_vertices(mesh, join_geometries=False):
 
 def get_normals(mesh, join_geometries=False):
     """given an input mesh (trimesh.Trimesh, trimesh.Scene, dict), return the vertex normals as NV x 3 array"""
-    if isinstance(mesh, Trimesh) and 'ply_raw' in mesh.metadata.keys():
-        x = mesh.metadata['ply_raw']['vertex']['data']['nx'].flatten()
-        y = mesh.metadata['ply_raw']['vertex']['data']['ny'].flatten()
-        z = mesh.metadata['ply_raw']['vertex']['data']['nz'].flatten()
-        normals = np.stack((x, y, z), axis=1)
-    elif isinstance(mesh, Trimesh):
+    if isinstance(mesh, Trimesh):
         normals = mesh.normals
     elif isinstance(mesh, Scene):
         if not join_geometries and len(mesh.geometry) > 1:
@@ -105,17 +96,33 @@ def get_normals(mesh, join_geometries=False):
     return normals
 
 
+def get_vertex_normals(mesh):
+    """return per-vertex normal vectors, which are usually obtained by weighted averaging of each vertex's surrounding
+    face normals"""
+    if isinstance(mesh, Trimesh):
+        vertex_normals = mesh.vertex_normals
+    elif isinstance(mesh, Scene):
+        vertex_normals = np.concatenate([g.vertex_normals for g in mesh.geometry.values()], axis=0)
+    elif isinstance(mesh, dict):
+        if not hasattr(mesh, 'vertex_normals'):
+            raise Exception('mesh dict should have field vertex_normals')
+        vertex_normals = mesh['vertex_normals']
+    else:
+        raise Exception('unsupported input type: ' + str(type(mesh)))
+    return vertex_normals
+
+
 def get_uv_coords(mesh, join_geometries=False):
     """given an input mesh (trimesh.Trimesh, trimesh.Scene, dict), return the texture coordinates as NV x 2 array"""
-    if isinstance(mesh, Trimesh) and 'ply_raw' in mesh.metadata.keys():
+    if isinstance(mesh, Trimesh) and hasattr(mesh, 'visual') and hasattr(mesh.visual, 'uv'):
+        uvs = mesh.visual.uv
+    elif isinstance(mesh, Trimesh) and 'ply_raw' in mesh.metadata.keys():
         props = mesh.metadata['ply_raw']['vertex']['properties'].keys()
         u_key = 'u' if 'u' in props else 's'
         v_key = 'v' if 'v' in props else 't'
         u = mesh.metadata['ply_raw']['vertex']['data'][u_key]
         v = mesh.metadata['ply_raw']['vertex']['data'][v_key]
         uvs = np.stack((u, v), axis=1)
-    elif isinstance(mesh, Trimesh):
-        uvs = mesh.visual.uv
     elif isinstance(mesh, Scene):
         if not join_geometries and len(mesh.geometry) > 1:
             raise Exception('mesh has multiple geometries, set join_geometries=True')
@@ -131,9 +138,7 @@ def get_uv_coords(mesh, join_geometries=False):
 
 def get_faces(mesh, join_geometries=False):
     """given an input mesh (trimesh.Trimesh, trimesh.Scene, dict), return the faces as NF x 3 array"""
-    if isinstance(mesh, Trimesh) and 'ply_raw' in mesh.metadata.keys():
-        faces = mesh.metadata['ply_raw']['face']['data']['vertex_indices']
-    elif isinstance(mesh, Trimesh):
+    if isinstance(mesh, Trimesh):
         faces = mesh.faces
     elif isinstance(mesh, Scene):
         if not join_geometries and len(mesh.geometry) > 1:
@@ -154,7 +159,8 @@ def get_faces(mesh, join_geometries=False):
 
 
 def get_tangent_frames(mesh):
-    """compute tangent frames per vertex"""
+    """compute tangent frames per vertex, returns the mesh as dict, even if input was a Trimesh"""
+    # algorithm:
     # source: Eric Lengyel, Foundations of Game Engine Development - Volume 2: Rendering
     # originally under http://www.terathon.com/code/tangent.html
     # https://web.archive.org/web/20190211192552/http://www.terathon.com/code/tangent.html
@@ -388,7 +394,9 @@ def get_bbox(inp, dims: tuple = None):
                                                          np.maximum(bbox[1, :], bbox_[1, :])])
         return bbox
 
-    if isinstance(inp, dict):
+    if isinstance(inp, Trimesh):
+        inp = inp.vertices
+    elif isinstance(inp, dict):
         inp = inp['vertices']
     elif not isinstance(inp, np.ndarray):
         raise Exception('input must be trimesh.Trimesh, trimesh.Scene or list of dicts with vertices key')
@@ -429,7 +437,8 @@ def trimesh_to_dict(mesh: Trimesh):
     """extract vertices, faces and uv coordinates from trimesh.Trimesh and return them in dict"""
     return Dct(vertices=get_vertices(mesh),
                faces=get_faces(mesh),
-               uvs=get_uv_coords(mesh))
+               uvs=get_uv_coords(mesh),
+               vertex_normals=get_vertex_normals(mesh))
 
 
 def cam_extrinsics(cam):
@@ -811,8 +820,8 @@ def embree_render_deferred(meshes = None,
 
     if meshes is None:
         meshes = []
-        meshes.append(sphere)
-        meshes.append(cube)
+        meshes.append(create_unit_sphere())
+        meshes.append(create_unit_cube())
 
     bbox = get_bbox(meshes)
     bbox_diam = np.linalg.norm(np.diff(bbox, axis=0))
