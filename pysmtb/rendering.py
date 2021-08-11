@@ -36,6 +36,7 @@ missing features:
 from copy import deepcopy
 import numpy as np
 import trimesh.visual.texture
+from warnings import warn
 from pyembree.rtcore_scene import EmbreeScene
 from pyembree.mesh_construction import TriangleMesh
 
