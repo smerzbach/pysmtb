@@ -1,10 +1,32 @@
 from copy import deepcopy
 import numpy as np
+import os
 from tqdm import tqdm
 
 from pysmtb.utils import Dct, assign_masked, write_video
 from test_rendering import test_rendering
 
+
+# test OpenEXR I/O
+from pysmtb.utils import read_openexr, write_openexr
+image_float = np.random.rand(100, 100, 3)
+image_half = image_float.astype(np.float16)
+image_uint = ((2 ** 31 - 1) * image_float).astype(np.uint32)
+
+os.makedirs('data', exist_ok=True)
+write_openexr('data/test_img_half.exr', image_half, pixel_types='half')
+write_openexr('data/test_img_float.exr', image_float, pixel_types='float')
+write_openexr('data/test_img_uint.exr', image_uint, pixel_types='uint')
+
+image_half_test = read_openexr('data/test_img_half.exr', pixel_type='half', sort_rgb=True)[0]
+image_float_test = read_openexr('data/test_img_float.exr', pixel_type='float', sort_rgb=True)[0]
+image_uint_test = read_openexr('data/test_img_uint.exr', pixel_type='uint', sort_rgb=True)[0]
+
+test_half = np.testing.assert_almost_equal(image_half, image_half_test)
+test_float = np.testing.assert_almost_equal(image_float, image_float_test)
+test_uint = np.testing.assert_equal(image_uint, image_uint_test)
+
+# simple test for rendering scripts
 renderings, masks, buffers = test_rendering()
 
 # export animation in different formats

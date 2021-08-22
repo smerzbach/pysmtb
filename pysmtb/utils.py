@@ -435,6 +435,91 @@ def read_openexr(fname, channels=None, pixel_type=None, sort_rgb=False):
     return pixels, channels
 
 
+def write_openexr(filename: str, image: np.ndarray, channels: list = None, pixel_types: Union[str, list] = None,
+                  compression='PIZ'):
+    """write image (stored as 2D/3D numpy.ndarray) in OpenEXR HDR format with channel names specified as list of
+    strings; the pixel type (one of float, half or uint) can be specified globally or per channel, if omitted, it is
+    chosen according to the np.ndarray's dtype, if this matches any of the three options; compression method (all
+    lossless) can be chosen as one of [None, 'NO', 'RLE', 'ZIPS', 'ZIP', 'PIZ', 'PXR24', 'B44', 'B44A', 'DWAA', 'DWAB'],
+    default: PIZ
+
+    channel names are automatically assigned for the following cases, unless explicitly specified:
+    1 channel: L
+    3 channels: RGB
+    4 channels: RGBA
+    """
+    import Imath
+    import OpenEXR
+
+    compressions = [k.replace('_COMPRESSION', '') for k in vars(Imath.Compression).keys() if k.endswith('_COMPRESSION')]
+    if compression is None:
+        compression = 'NO'
+    if compression.upper() in compressions:
+        compression = Imath.Compression(compression.upper() + '_COMPRESSION')
+    else:
+        raise Exception('unknown compression format: ' % compression)
+
+    image = np.atleast_3d(image)
+    height, width, num_channels = image.shape
+
+    def get_pixel_types(pixel_type: str):
+        pixel_type = pixel_type.lower()
+        if pixel_type in ['float', 'float32']:
+            return Imath.PixelType('FLOAT')
+        elif pixel_type in ['half','float16']:
+            return Imath.PixelType('HALF')
+        elif pixel_type in [bool, 'int', 'uint', 'uint32']:
+            return Imath.PixelType('UINT')
+        else:
+            raise Exception('pixel type %s not supported, must be "float", "half" or "int"' % pixel_type)
+
+    def pixel_type_np(pixel_type: Imath.PixelType):
+        if pixel_type == Imath.PixelType('HALF'):
+            return np.float16
+        elif pixel_type == Imath.PixelType('FLOAT'):
+            return np.float32
+        elif pixel_type == Imath.PixelType('UINT'):
+            return np.uint32
+        else:
+            raise Exception('unexpected value for pixel type')
+
+    if pixel_types is None:
+        if image.dtype in [np.float32, np.float64]:
+            pixel_types = 'float'
+        elif image.dtype == np.float16:
+            pixel_types = 'half'
+        elif image.dtype in [np.uint8, np.uint16, np.uint32, np.int8, np.int16, np.int32]:
+            pixel_types = 'uint'
+        else:
+            raise Exception('pixel type cannot be derived automatically for array of type ' + str(image.dtype))
+
+    if isinstance(pixel_types, str):
+        pixel_types = [pixel_types] * num_channels
+    pixel_types = [get_pixel_types(pixel_type) for pixel_type in pixel_types]
+
+    if channels is None:
+        # auto assign channel names if none were specified
+        if num_channels == 1:
+            channels = ['L']
+        elif num_channels == 3:
+            channels = ['R', 'G', 'B']
+        elif num_channels == 3:
+            channels = ['R', 'G', 'B', 'A']
+        else:
+            num_digits = max(1, int(np.ceil(np.log10(num_channels + 1))))
+            channels = [('ch%0' + str(num_digits) + 'd') % ci for ci in nrange(num_channels)]
+    assert len(channels) == num_channels, 'number of channels (%d) must match the image ' \
+                                          'dimensions (%d)' % (len(channels), num_channels)
+    assert len(pixel_types) == num_channels, 'pixel type was speficied %d times, should match the image ' \
+                                             'dimensions (%d) or be defined once' % (len(pixel_types), num_channels)
+    header = OpenEXR.Header(width, height)
+    header['compression'] = compression
+    header['channels'] = {channel: Imath.Channel(pixel_type) for channel, pixel_type in zip(channels, pixel_types)}
+    outfile = OpenEXR.OutputFile(filename, header)
+    outfile.writePixels({channels[ci]: image[:, :, ci].astype(pixel_type_np(pixel_types[ci])).tostring() for ci in range(num_channels)})
+    outfile.close()
+
+
 def clamp(arr, lower=0, upper=1):
     if isinstance(arr, np.ndarray):
         arr = arr.clip(lower, upper)
