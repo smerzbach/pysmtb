@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>sliding comparison</title>
+    <style>
+        :root { --width: 375px; --height: 305px }
+        body { background: #ccc; margin: 0.5rem; }
+        .cell { display: table-cell; }
+        .cell h3 { z-index: 5; background-color: #eee; height: 30px; margin: 10px 0px 0px 0px; padding: 5px 5px 0px 5px; border: solid 2px #aaa;}
+        .cell video { width: var(--width); }
+        .cell img { width: var(--width); }
+        .cell .slider { min-width: var(--width); min-height: var(--height); position: relative; }
+        .slider { display: flex; border: solid 2px #aaa;}
+        .slider .left { position: absolute; }
+        .slider .right { position: absolute; clip-path: inset(0px 0px 0px 50%); }
+        .slider .left_label { position: absolute; background-color: #ddd; left: 0; padding: 5px; margin-left: 2px; z-index: 100;}
+        .slider .right_label { position: absolute; background-color: #ddd; right: 0; padding: 5px; margin-right: 2px; z-index: 100;}
+    </style>
+    <script type="text/javascript" src="sliding_comparison.js"></script>
+</head>
+<body>
+    <div>
+        <div class="cell">
+            <h3>img tags, individual</h3>
+            <div class="slider" onmousemove="slider(event)">
+                <div class="left" style="overflow: visible;">
+                    <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386_000.png"/>
+                </div>
+                <span class="left_label" style="bottom: 0;">label left</span>
+                <div class="right" style="overflow: visible;">
+                    <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386_153.png"/>
+                </div>
+                <span class="right_label" style="bottom: 0;">label right</span>
+            </div>
+        </div>
+        <div class="cell">
+            <h3>video tags, individual</h3>
+            <div class="slider" onmousemove="slider(event)">
+                <div class="left">
+                    <video loop autoplay width="100%" height="100%"><source src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.mp4"></video>
+                </div>
+                <span class="left_label" style="bottom: 1px;">label left</span>
+                <div class="right">
+                    <video loop autoplay width="100%" height="100%" style="filter: brightness(1.75);"><source src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.mp4"></video>
+                </div>
+                <span class="right_label" style="bottom: 1px;">label right</span>
+            </div>
+        </div>
+    </div>
+    <div>
+        <div class="cell">
+            <h3>img tags, global</h3>
+            <div class="slider" onmousemove="slider(event, true)">
+                <div class="left" style="overflow: visible;">
+                    <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.webp"/>
+                </div>
+                <span class="left_label" style="bottom: 0;">label left</span>
+                <div class="right" style="overflow: visible;">
+                    <div style="filter: brightness(3);">
+                        <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.webp" style="filter: contrast(2);"/>
+                    </div>
+                </div>
+                <span class="right_label" style="bottom: 0;">label right</span>
+            </div>
+        </div>
+        <div class="cell">
+            <h3>animated background, global</h3>
+            <div class="slider" onmousemove="slider(event, true)">
+                <div class="left" style="background: url(https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.webp); background-size: contain; background-repeat: no-repeat; width: 100%; height: 100%; background-color: #000; vertical-align: bottom;"></div>
+                <span class="left_label" style="bottom: 0;">label left</span>
+                <div class="right" style="background: url(https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386.webp); background-size: contain; background-repeat: no-repeat; width: 100%; height: 100%; background-color: #000; filter: blur(5px); "></div>
+                <span class="right_label" style="bottom: 0;">label right</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
