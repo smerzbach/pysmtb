@@ -6,6 +6,7 @@ python toolbox of image and rendering related helper / visualization functions
 * [Installation](#installation)
 * [Interactive image viewer](#interactive-image-viewer)
 * [Deferred rendering using PyEmbree](#deferred-rendering-using-pyembree)
+* [Interactive Sliding Comparisons](#sliding-comparisons)
 
 ## Installation
 
@@ -204,3 +205,58 @@ currently some relevant features are not yet implemented but will be added in th
 - camera distortion model
 - fallback tangent vector computation for meshes without texture coordinates
 
+## Sliding Comparisons
+Images are best compared interactively by flipping back and forth, not statically side-by-side. Below is some simply
+HTML, CSS and JavaScript for producing side-by-side views of images or even animations / videos that can be compared 
+interactively by a sliding divider that can be moved by hovering the mouse over the element.
+
+Embedding the necessary JavaScript into websites is trivial:
+
+```html
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>sliding comparison</title>
+    <style>
+        .slider { position: relative; display: flex; }
+        .slider .left { position: absolute; }
+        .slider .right { position: absolute; clip-path: inset(0px 0px 0px 50%); }
+    </style>
+    <script>
+        function slider(event, synced=false) {
+            var activeContainer = event.currentTarget;
+            var activeRight = activeContainer.querySelector(".right");
+            var offset = activeRight.getBoundingClientRect().left;
+
+            if (synced) {
+                sliders = document.getElementsByClassName("slider");
+            } else {
+                sliders = [event.currentTarget];
+            }
+            for (var i = 0; i < sliders.length; i++) {
+                var right = sliders[i].querySelector(".right");
+                var position = ((event.pageX - offset) / right.offsetWidth) * 100;
+                right.style.clipPath = "inset(0px 0px 0px " + (position) + "%)";
+            }
+        }
+    </script>
+</head>
+<body>
+    <div class="slider" onmousemove="slider(event)">
+        <div class="left" style="overflow: visible;">
+            <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386_000.png"/>
+        </div>
+        <div class="right" style="overflow: visible;">
+            <img src="https://raw.githubusercontent.com/smerzbach/data/master/data/mat0386_153.png"/>
+        </div>
+    </div>
+</body>
+</html>
+```
+
+Multiple image / video pairs can be arranged in a table-like structure and with a single flag the slider can be moved
+globally for all images alike (instead of `onmousemove="slider(event)"` just set `onmousemove="slider(event, true)"`.
+A slightly more elaborate example HTML document can be found under [/data/sliding_comparison.html](data/sliding_comparison.html)
+which should look and feel something like this: 
+
+![preview of sliding comparison](https://raw.githubusercontent.com/smerzbach/data/master/data/sliding_comparison.webp)
