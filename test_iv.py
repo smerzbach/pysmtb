@@ -27,6 +27,14 @@ def rand_im(width, height, num_channels, num_ims, scales):
 
 
 if __name__ == "__main__":
+    # test zoomed copy
+    from time import sleep
+    np.random.seed(1)
+    v = iv.iv(np.einsum('ic,jc->ijc', np.random.rand(4,3), np.random.rand(5, 3)))
+    import matplotlib.pyplot as plt
+    v.copy_to_clipboard_zoomed()
+    v.copy_to_clipboard_zoomed()
+    v.save('~/export_canvas.png', canvas=True)
 
     # test boolean images
     im1 = np.random.rand(10, 10, 3) < 0.5 ** 3

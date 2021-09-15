@@ -57,7 +57,7 @@ try:
 except ModuleNotFoundError:
     Tensor = type(None)
 
-from pysmtb.utils import crop_bounds, pad, collage
+from pysmtb.utils import crop_bounds, pad, collage, qimage_to_np
 
 '''
 def MyPyQtSlot(*args):
@@ -228,6 +228,12 @@ class IV(QMainWindow):
             assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
                                                          % (len(self.labels), len(self.images))
 
+        # stores np.ndarray, QImage and QApplication.clipboard() objects to prevent garbage collection when copying
+        # canvas or image to clipboard
+        self.clipboard_image = None
+        self.clipboard_qimage = None
+        self.clipboard = None
+
         # spectral to RGB conversion stuff
         # TODO: expose these
         self.spec_wl0 = 380
@@ -280,6 +286,8 @@ class IV(QMainWindow):
         self.ofname = ''  # previous saved image path
         
         self.show()
+        self.repaint()
+        self.canvas.draw()
 
     def _compute_crop_bounds(self):
         # pre-compute cropping bounds (tight bounding box around non-zero pixels)
@@ -1133,17 +1141,49 @@ class IV(QMainWindow):
         c = QApplication.clipboard()
         c.setImage(im)
 
-    def copy_to_clipboard_zoomed(self):
+    def _get_image_pos_canvas(self):
         extent = self.ax.get_window_extent()
-        width_axes = extent.width
-        height_axes = extent.height
+        # canvas dimensions in pixels
+        width_canvas, height_canvas = extent.x1 - extent.x0, extent.y1 - extent.y0
 
+        # axis coordinates
+        ax0, ax1 = self.ax.get_xlim()
+        ay0, ay1 = self.ax.get_ylim()
+        ix0, ix1, iy1, iy0 = self.ih.get_extent()
+
+        # relative coordinates of image corners
+        fx0 = (ix0 - ax0) / (ax1 - ax0)
+        fx1 = 1 - (ax1 - ix1) / (ax1 - ax0)
+        fy0 = 1 - (iy0 - ay0) / (ay1 - ay0)
+        fy1 = (ay1 - iy1) / (ay1 - ay0)
+        x0 = int(np.clip(np.round(width_canvas * fx0), 0, width_canvas))
+        x1 = int(np.clip(np.round(width_canvas * fx1), 0, width_canvas))
+        y0 = int(np.clip(np.round(height_canvas * fy0), 0, height_canvas))
+        y1 = int(np.clip(np.round(height_canvas * fy1), 0, height_canvas))
+        return x0, x1, y0, y1
+
+    def copy_to_clipboard_zoomed(self):
+        """get crop of zoomed in / out image on canvas at actual display resolution"""
+        self.repaint()
+        self.canvas.draw()
+
+        x0, x1, y0, y1 = self._get_image_pos_canvas()
         im = QImage(self.canvas.grab())
-        im = im.copy(0, 0, int(width_axes), int(height_axes))
-        c = QApplication.clipboard()
-        c.setImage(im)
+        im = im.copy(x0, y0, x1 - x0, y1 - y0)
+        im = qimage_to_np(im)
 
-    def save(self, ofname=None, zoomed=False, canvas=False, animation=False):
+        # prevent garbage collection by storing the objects in the class
+        self.clipboard_image = im
+        self.clipboard_qimage = QImage(im, im.shape[1], im.shape[0], QImage.Format_ARGB32)
+        if self.clipboard is None:
+            self.clipboard = QApplication.clipboard()
+        self.clipboard.setImage(self.clipboard_qimage)
+
+    def save(self, ofname=None, zoomed=False, canvas=False, animation=False, tonemapped=True):
+        if not tonemapped and (canvas or animation):
+            warn('images / animations can only be written in tonemapped form when exporting the visible canvas')
+            return
+
         try:
             if ofname is None:
                 dialog = QFileDialog()
@@ -1156,37 +1196,44 @@ class IV(QMainWindow):
             if os.path.splitext(ofname)[1].lower() in ['.gif', '.webp', '.mp4']:
                 animation = True
             if zoomed:
-                im = self.get_img()
-                h, w = im.shape[:2]
+                # export crop of current image that is determined by the zoom and pan level
+                if tonemapped:
+                    image = np.array(self.ih.get_array())
+                else:
+                    image = self.get_img()
+                h, w = image.shape[:2]
                 limits = self.ax.axis()
                 x0 = np.max([0, int(limits[0] + 0.5)])
                 x1 = np.min([w, int(limits[1] + 0.5)])
                 y0 = np.max([0, int(limits[3] + 0.5)])
                 y1 = np.min([h, int(limits[2] + 0.5)])
-                image = im[y0:y1, x0:x1, :]
+                image = image[y0:y1, x0:x1, :]
             elif canvas:
-                from pysmtb.utils import qimage_to_np
-                im = QImage(self.canvas.grab())
-                # im = im.convertToFormat(QImage.Format_RGB888)
-                image = qimage_to_np(im)
-
-                image = image[:, :, -2::-1]
-
                 # get only image content, not the white stuff from the canvas
-                extent = self.ax.get_window_extent()
-                width_axes = extent.width
-                height_axes = extent.height
-                image = image[: int(height_axes), : int(width_axes), :]
+                x0, x1, y0, y1 = self._get_image_pos_canvas()
+                image = QImage(self.canvas.grab())
+                image = image.copy(x0, y0, x1 - x0, y1 - y0)
+                image = qimage_to_np(image)[:, :, -2::-1]
             elif animation:
                 from pysmtb.utils import write_video
                 ims = self.get_imgs(tonemap=True, decorate=False)
+                # TODO: apply zoomed / canvas flags here, i.e. crop and / or scale each image
                 if os.path.splitext(ofname)[1].lower() not in ['.webp', '.mp4', '.gif']:
                     print('unexpected file extension: %s' % os.path.splitext(ofname)[1].lower())
                 else:
                     write_video(filename=ofname, frames=ims)
                 return
             else:
-                image = np.array(self.ih.get_array())
-            imageio.imwrite(ofname, image)
+                if tonemapped:
+                    image = np.array(self.ih.get_array())
+                else:
+                    image = self.get_img()
+            if not tonemapped and os.path.splitext(ofname)[1].lower() == '.exr':
+                # export untonemapped images as OpenEXR
+                from pysmtb.image import write_openexr
+                write_openexr(ofname, image=image)
+            else:
+                # write any other formats
+                imageio.imwrite(ofname, image)
         except Exception as e:
             warn(str(e))
