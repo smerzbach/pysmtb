@@ -38,6 +38,7 @@ try:
     matplotlib.use('Qt5Agg')
 except:
     pass
+import matplotlib.cm as cm
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 
@@ -247,6 +248,10 @@ class IV(QMainWindow):
         self.spec_cmf_selected_name = 'CIE 1931 2 Degree Standard Observer'
         self.spec_illuminant_selected_name = 'E'
 
+        # colormapping for scalar-valued inputs
+        self.cm_names = list(cm._cmap_registry.keys())
+        self.cm_name_selected = kwargs.get('cm', 'gray')
+
         # image display stuff
         self.ih = None
         self.xmins = []
@@ -360,6 +365,11 @@ class IV(QMainWindow):
         self.uiLEFontSize = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_size)
         self.uiLEFontColor = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_color)
 
+        # add colormap options
+        self.uiCBColormaps = _add_widget(width / 2, QComboBox, None, 'activated', self._callback_combobox, self.cm_names)
+        cm_ind = np.where([name == self.cm_name_selected for name in self.cm_names])[0]
+        self.uiCBColormaps.setCurrentIndex(cm_ind[0] if len(cm_ind) else 0)
+
         # add spectral to RGB conversion options
         self.uiCBSpecCMFs = _add_widget(width, QComboBox, None, 'activated', self._callback_combobox, self.spec_cmf_names)
         cmf_ind = np.where([name == self.spec_cmf_selected_name for name in self.spec_cmf_names])[0]
@@ -428,6 +438,9 @@ class IV(QMainWindow):
         _add_row(QLabel('font value:'), self.uiLEFontColor)
         _add_row(_hdiv())
         _add_row(QLabel('info:'), self.uiLabelInfo)
+        _add_row(_hdiv())
+
+        _add_row(QLabel('cmap:'), self.uiCBColormaps)
         _add_row(_hdiv())
 
         any_spectral = np.any([im.ndim > 2 and im.shape[2] > 3 for im in self.images])
@@ -629,6 +642,9 @@ class IV(QMainWindow):
             self._display_image()
         elif ui == self.uiCBSpecIlluminants:
             self.spec_illuminant_selected_name = self.uiCBSpecIlluminants.currentText()
+            self._display_image()
+        elif ui == self.uiCBColormaps:
+            self.cm_name_selected = self.uiCBColormaps.currentText()
             self._display_image()
 
     def _callback_push_button(self, ui, *args):
@@ -860,7 +876,8 @@ class IV(QMainWindow):
 
         if im.shape[2] == 1:
             # L
-            im = np.repeat(im, 3, axis=2)
+            if self.cm_name_selected == 'gray':
+                im = np.repeat(im, 3, axis=2)
         elif im.shape[2] == 2 and self.has_alpha and self.blend_alpha:
             # LA
             im = self.blend(im[:, :, 0:1], im[:, :, 1:2])
@@ -898,7 +915,11 @@ class IV(QMainWindow):
                 im = colour.XYZ_to_sRGB(im / 100)
             else:
                 im /= 100
-        return np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / self.gamma)
+        im = np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / self.gamma)
+        if self.cm_name_selected != 'gray':
+            return cm.get_cmap(self.cm_name_selected)(im[..., 0])[..., :3]
+        else:
+            return im
 
     def switch_image(self, delta=1, redraw=True):
         """set index to previous or next image, optionally skip redrawing of canvas (and thus the actual image display)"""

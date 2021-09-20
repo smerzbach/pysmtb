@@ -27,6 +27,10 @@ def rand_im(width, height, num_channels, num_ims, scales):
 
 
 if __name__ == "__main__":
+    # test colormapping
+    v = iv.iv(np.concatenate((np.einsum('ic,jc->ijc', np.random.rand(200, 1), np.random.rand(500, 1)),
+                              np.linspace(0, 1, 500)[None, :, None].repeat(200, axis=0)), axis=0))
+
     # test zoomed copy
     from time import sleep
     np.random.seed(1)
