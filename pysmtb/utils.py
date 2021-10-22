@@ -77,6 +77,16 @@ def dims_execpt(inp, dim):
     return tuple(np.r_[[d for d in range(inp.ndim) if d != dim]])
 
 
+def sizes_execpt(inp, dim):
+    """return all except the specified dimension indices"""
+    return [s for d, s in enumerate(inp.shape) if d != dim]
+
+
+def replace_dim(inp, dim: int, new_size: int):
+    """given input array or tensor, return shape of array with one of the dimensions replaced by a new size"""
+    return [s if d != dim else new_size for d, s in enumerate(inp.shape)]
+
+
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
     import scipy.io as spio
