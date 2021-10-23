@@ -83,8 +83,10 @@ def sizes_execpt(inp, dim):
 
 
 def replace_dim(inp, dim: int, new_size: int):
-    """given input array or tensor, return shape of array with one of the dimensions replaced by a new size"""
-    return [s if d != dim else new_size for d, s in enumerate(inp.shape)]
+    """given input array or tensor, return shape of array with one of the dimensions (dim, can be negative) replaced
+     by the specified new size"""
+    nd = inp.ndim
+    return [new_size if d == dim or dim < 0 and d == nd + dim else s for d, s in enumerate(inp.shape)]
 
 
 def loadmat(filename):
