@@ -4,3 +4,4 @@ matplotlib
 numpy
 OpenEXR
 PyQt5
+tqdm
