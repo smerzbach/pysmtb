@@ -3,10 +3,10 @@ channels:
   - defaults
 dependencies:
   - python=3.8
+  - imageio
   - matplotlib
   - numpy
   - pyembree
   - trimesh
-  - imageio
   - pyglet
   - scipy

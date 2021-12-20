@@ -1,0 +1,6 @@
+colour-science
+imageio
+matplotlib
+numpy
+OpenEXR
+PyQt5
