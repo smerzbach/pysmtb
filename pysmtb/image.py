@@ -2,7 +2,7 @@ from copy import deepcopy
 import numpy as np
 import os
 import sys
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 def assign_masked(mask: np.ndarray, values: np.ndarray, buffer: np.ndarray = None, init_val: float = 0.):
     """given an h x w binary mask, an array with nnz(mask) x nc_vals elements, and optionally a buffer (either empty or
@@ -269,8 +269,8 @@ def read_exr(fname, outputType=np.float16):
     return pixels, channels
 
 
-def read_openexr(fname, channels=None, pixel_type=None, sort_rgb=False):
-    """read OpenEXR images"""
+def read_openexr(fname, channels=None, pixel_type=None, sort_rgb=False) -> Tuple[np.ndarray, list]:
+    """read OpenEXR images, returns np.ndarray and list of channel names"""
 
     import OpenEXR
     import Imath
@@ -497,7 +497,9 @@ def qimage_to_np(im):
 def spec_image_to_srgb(image: np.ndarray,
                       wavelengths: Union[np.ndarray, List],
                       illuminant_name: str = 'E',
-                      cmf_name: str = 'CIE 1931 2 Degree Standard Observer'):
+                      cmf_name: str = 'CIE 1931 2 Degree Standard Observer') -> np.ndarray:
+    """convert spectral image to RGB given image as np.ndarray, wavelength sampling, illuminant & color matching
+    functions (defaults to CIE 1931 RGB with equal energy (E) illuminant)"""
     import colour
 
     nc = image.shape[2]
@@ -512,9 +514,10 @@ def spec_image_to_srgb(image: np.ndarray,
     cmfs = deepcopy(colour.MSDS_CMFS[cmf_name])
     cmfs = cmfs.align(shape=spec_shape)
     image = colour.msds_to_XYZ(image, cmfs, illuminant, method='Integration', shape=spec_shape)
+    image /= 100
     if cmf_name.lower().startswith('cie'):
-        #
-        image = colour.XYZ_to_sRGB(image / 100)#, illuminant=colour.colorimetry.CCS_ILLUMINANTS[cmf_name][illuminant_name])
-    else:
-        image /= 100
+        # convert CIE XYZ to sRGB
+        image = colour.XYZ_to_sRGB(image,
+                                   illuminant=colour.colorimetry.CCS_ILLUMINANTS[cmf_name][illuminant_name],
+                                   apply_cctf_encoding=False)
     return image
