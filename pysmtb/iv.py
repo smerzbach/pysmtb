@@ -1,10 +1,44 @@
-# -*- coding: utf-8 -*-
 """
 Created on Thu Oct 18 19:24:05 2018
 
-@author: merzbach
+@author: Sebastian Merzbach
+
+setup:
+pip install -r requirements.txt
+pip install pysmtb
+
+or manually install:
+  - colour-science
+  - imageio
+  - matplotlib
+  - numpy
+  - OpenEXR
+  - PyQt5
+  - pysmtb
+
+On a Ubuntu, you might have to first run:
+sudo apt-get install libopenexr-dev openexr zlib1g-dev
+
+usage from command line:
+
+    python iv.py -i image.exr
+    python iv.py -i image.exr --autoscale 0 --scale 2
+    python iv.py -i image1.exr image2.exr --autoscale 0 --scale 2 --collage 1
+    python iv.py -i *.exr --autoscale 1 --autoscaleGlobal 1 --collage 1 --nr 5 --nc 7
+
+usage from code:
+
+from pysmtb.iv import iv
+v = iv(image1, image2, ...)
+v = iv([image1, image2, image3], image4, image5, ...)
+v = iv(images)  # image being H x W x C x N np.ndarray or torch.Tensor
+v = iv(..., autoscale=True, autoscaleGlobal=True)
+v = iv(..., autoscale=True, autoscaleGlobal=True, collage=True)
+
+TODO: iv currently doesn't support specifying wavelength channels per image
 
 """
+
 from copy import deepcopy
 from datetime import datetime
 from functools import wraps
@@ -1258,3 +1292,83 @@ class IV(QMainWindow):
                 imageio.imwrite(ofname, image)
         except Exception as e:
             warn(str(e))
+
+
+if __name__ == '__main__':
+    """
+    basic command line interface, usage:
+    
+    python iv.py -i image.exr
+    python iv.py -i image.exr --autoscale 0 --scale 2
+    python iv.py -i image1.exr image2.exr --autoscale 0 --scale 2 --collage 1
+    python iv.py -i *.exr --autoscale 1 --autoscaleGlobal 1 --collage 1 --nr 5 --nc 7
+    """
+
+    from argparse import ArgumentParser
+    import glob
+    import imageio
+    from tqdm import tqdm
+
+    from pysmtb.image import read_openexr
+
+    parser = ArgumentParser()
+    parser.add_argument('-i', '--input', nargs='+', default=['*'])
+    args, unknown_args = parser.parse_known_args()
+
+    iv_args = {}
+    unknown_args = unknown_args[::-1]
+    while len(unknown_args):
+        arg = unknown_args.pop()
+        if len(unknown_args) and arg.startswith('--'):
+            val = unknown_args.pop()
+            for val_type in [int, float, bool, str]:
+                try:
+                    val = val_type(val)
+                    break
+                except:
+                    continue
+            iv_args[arg[2:]] = val
+    print(iv_args)
+
+    inp = args.input
+    if len(inp) == 1 and '*' in inp:
+        filenames = sorted(glob.glob(inp))
+    else:
+        filenames = inp
+
+    images = []
+    for fn in tqdm(filenames, 'loading images'):
+        ext = os.path.splitext(fn)[1].lower()
+        if ext == '.exr':
+            image, channels = read_openexr(fn, sort_rgb=True)
+            rgb_inds = [ind for ind, c in enumerate(channels) if c.lower() in ['r', 'g', 'b']]
+            luminance_ind = np.where(np.logical_or(np.array(channels) == 'L', np.array(channels) == 'l'))[0]
+            if len(rgb_inds) > 0:
+                image = image[:, :, np.array(rgb_inds)]
+            elif len(luminance_ind):
+                image = image[:, :, luminance_ind[0:1]]
+            elif len(channels) > 3:
+                chs = []
+                # handle multispectral channels
+                for ind, ch in enumerate(channels):
+                    # if we can convert a channel name to float, it is likely a wavelength
+                    try:
+                        c = float(ch)
+                        chs.append(ind)
+                    except:
+                        continue
+                chs = np.array(chs)
+                image = image[:, :, chs]
+                # TODO: iv currently doesn't support specifying wavelength channels per image
+            elif image.shape[-1] != 1:
+                raise Exception('could not load image %s, unexpected channel count' % fn)
+        elif ext in ['png', 'jpg', 'jpeg']:
+            image = imageio.imread(fn)
+        else:
+            warning('unsupported file extension: ' + fn)
+            continue
+
+        images.append(image)
+    v = iv(images, **iv_args)
+    print('press any key to close the session')
+    input()
