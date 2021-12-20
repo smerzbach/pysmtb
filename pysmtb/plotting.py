@@ -1,3 +1,4 @@
+from typing import List, Tuple, Union
 import matplotlib
 from matplotlib.transforms import Bbox
 import matplotlib.pyplot as plt
@@ -109,3 +110,99 @@ def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip
 
     axes.set_position(Bbox([[0, 0], [1, 1]]))
     return handle
+
+
+def annotate_spec_images(images: Union[np.ndarray, List],
+                         wavelengths: Union[np.ndarray, List],
+                         annotate_pixels: Union[List, Tuple] = (),
+                         scale: float = 1.0,
+                         offset: float = 0.0,
+                         gamma: float = 1.0,
+                         illuminant_name: str = 'E',
+                         cmf_name: str = 'CIE 1931 2 Degree Standard Observer',
+                         interpolation: str = 'nearest',
+                         annot_color: tuple = (1, 0, 1),
+                         annot_x_offset: float = 5.,
+                         annot_y_offset: float = 5.,
+                         ) -> Tuple:
+    """display subplots of multiple spectral images, each annoated with line plots of individual pixels' spectra"""
+    from pysmtb.image import spec_image_to_srgb, tonemap
+    if isinstance(images, np.ndarray):
+        images = [images[..., i] for i in range(images.shape[3])]
+    images_rgb = []
+    for image in images:
+        images_rgb.append(spec_image_to_srgb(image, wavelengths=wavelengths, illuminant_name=illuminant_name, cmf_name=cmf_name))
+        images_rgb[-1] = tonemap(images_rgb[-1], offset=offset, scale=scale, gamma=gamma, as_uint8=True)
+
+    n = len(images)
+    nc = int(np.ceil(np.sqrt(n)))
+    nr = int(np.ceil(n / nc))
+
+    y_min = np.inf
+    y_max = -np.inf
+    fig, axes = plt.subplots(nrows=nr, ncols=nc * 2)
+    axes_spec = axes[:, 1::2]
+    axes = axes[:, 0::2]
+    for i, (ax_im, ax_spec) in enumerate(zip(axes.flatten(), axes_spec.flatten())):
+        if i < len(images):
+            ax_im.imshow(images_rgb[i], interpolation=interpolation)
+            for j, pix in enumerate(annotate_pixels):
+                ax_spec.plot(wavelengths, images[i][pix[0], pix[1], :], color=images_rgb[i][pix[0], pix[1]].astype(np.float32) / 255, label=str(j))
+                ylim = ax_spec.get_ylim()
+                y_min = np.minimum(y_min, ylim[0])
+                y_max = np.maximum(y_max, ylim[1])
+                ax_im.scatter(pix[1], pix[0], 50, marker='o', edgecolor=[1, 1, 1], facecolor='none')
+                ax_im.text(pix[1] + annot_x_offset, pix[0] + annot_y_offset, str(j), color=annot_color)
+            ax_spec.legend()
+        else:
+            ax_im.set_visible(False)
+            ax_spec.set_visible(False)
+
+    for ax in axes_spec.flatten():
+        ax.set_ylim((y_min, y_max))
+    return fig, axes, axes_spec
+
+
+def spec_imshow(image: np.ndarray,
+                wavelengths: Union[np.ndarray, List],
+                annotate_pixels: Union[List, Tuple] = (),
+                scale: float = 1.0,
+                offset: float = 0.0,
+                gamma: float = 1.0,
+                illuminant_name: str = 'E',
+                cmf_name: str = 'CIE 1931 2 Degree Standard Observer',
+                interpolation: str = 'nearest') -> None:
+    """display tonemapped spectral image, optionally surrounded by (up to 8) spectra sampled from its pixels"""
+    from pysmtb.image import spec_image_to_srgb, tonemap
+    image_rgb = spec_image_to_srgb(image, wavelengths=wavelengths, illuminant_name=illuminant_name, cmf_name=cmf_name)
+    image_rgb = tonemap(image_rgb, offset=offset, scale=scale, gamma=gamma, as_uint8=True)
+
+    nrows = 4
+    ncols = 6
+    n_ax_im = 4 * 4
+
+    ax = plt.subplot2grid((4, 6), (0, 1), rowspan=4, colspan=4)
+    ih = ax.imshow(image_rgb, aspect='equal', interpolation=interpolation)
+
+    n = len(annotate_pixels)
+    assert n <= 8, 'select at most 8 spectra'
+    spectra = []
+    for i, (x, y) in enumerate(annotate_pixels):
+        spectra.append((image[y, x, :], image_rgb[y, x, :]))
+        ax.scatter(x, y, s=250, marker='o', facecolors='none', edgecolors='r', linewidth=2)
+        ax.text(x + 2, y + 2, '%d' % (i + 1), color='r')
+
+    axes = []
+    for i in range(n):
+        index = i if i < 4 else i + n_ax_im
+        index = index // nrows + (index % nrows) * ncols
+        axes.append(plt.subplot(nrows, ncols, index + 1))
+
+    for i, spec in enumerate(spectra):
+        axes[i].plot(wavelengths, spec[0], color=np.clip(spec[1].astype(np.float32) / 255, 0, 1))
+        axes[i].set_yticklabels([])
+        x0, x1 = axes[i].get_xlim()
+        y0, y1 = axes[i].get_ylim()
+        dx = (x1 - x0) / 10
+        dy = (y1 - y0) / 8
+        axes[i].text(x0 + dx, y1 - dy, '%d' % (i + 1), color='r')
