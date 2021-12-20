@@ -236,6 +236,7 @@ def video_writer(filename: str, vcodec: str = 'libx264', framerate: float = 25,
 
 def write_video(filename: str, frames: Union[np.ndarray, list], offset: float = 0.0, scale: float = 1.0, gamma: float = 1.0,
                 masks: Union[np.ndarray, list, bool] = None, background: Union[np.ndarray, list, tuple] = None,
+                loop: bool = False,
                 ffmpeg_path=None, verbosity: int = 0, **kwargs):
     """given a sequence of frames (as 4D np.ndarray or as list of 3D np.ndarrays), export a video using FFMPEG;
 
@@ -253,6 +254,10 @@ def write_video(filename: str, frames: Union[np.ndarray, list], offset: float = 
     it is possible to export transparent videos via webp (no support with other codecs) by providing alpha masks;
     alternatively, the video sequence can be alpha blended against a background, either a constant value, color, or a
     static background image
+
+    loop sequence
+    set loop = True for poor man's looped animations where the reversed animation is appended (doubling the number of
+    frames as a side effect)
 
     additional arguments:
     all additional arguments will by passed through to the ffmpeg video writer, examples are:
@@ -272,7 +277,7 @@ def write_video(filename: str, frames: Union[np.ndarray, list], offset: float = 
     if frames[0].dtype == np.uint8:
         if requires_tonemapping:
             raise Exception('frames are already in uint8 format but tonemapping is requested')
-        if masks[0].dtype != np.uint8:
+        if masks is not None and masks[0].dtype != np.uint8:
             raise Exception('frames are in uint8 format but masks are not')
         if background is not None:
             raise Exception('frames are already in uint8 format but alpha blending is requested (background != None)')
@@ -291,7 +296,13 @@ def write_video(filename: str, frames: Union[np.ndarray, list], offset: float = 
         writer = video_writer(filename=filename, verbosity=verbosity, vcodec='gif', **kwargs)
     else:
         raise NotImplementedError('unexpected file extension: ' + ext)
-    for fi, frame in enumerate(frames):
+
+    frame_inds = np.r_[:len(frames)]
+    if loop:
+        frame_inds = np.r_[frame_inds, frame_inds[::-1]]
+
+    for fi in frame_inds:
+        frame = frames[fi]
         if masks is not None:
             mask = masks[fi]
         else:
