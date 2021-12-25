@@ -336,7 +336,10 @@ class Dct(Dict):
     """Dictionary with nicer formatting and dot notation access."""
 
     def __getattr__(self, key):
-        return self[key]
+        try:
+            return self[key]
+        except KeyError as exp:
+            raise AttributeError(exp)
 
     def __setattr__(self, key, val):
         self[key] = val
