@@ -3,28 +3,25 @@ Created on Thu Oct 18 19:24:05 2018
 
 @author: Sebastian Merzbach
 
+interactive HDR and spectral image viewer: applies automatic tonemapping and cropping, creates multi image arrangements
+
 setup:
-pip install -r requirements.txt
+virtualenv venv_pysmtb
+. venv_pysmtb/bin/activate
 pip install pysmtb
 
 or manually install:
-  - colour-science
-  - imageio
-  - matplotlib
-  - numpy
-  - OpenEXR
-  - PyQt5
-  - pysmtb
+  click
+  colour-science
+  imageio
+  matplotlib
+  numpy
+  OpenEXR
+  PyQt5
+  pysmtb
 
 On a Ubuntu, you might have to first run:
-sudo apt-get install libopenexr-dev openexr zlib1g-dev
-
-usage from command line:
-
-    python iv.py -i image.exr
-    python iv.py -i image.exr --autoscale 0 --scale 2
-    python iv.py -i image1.exr image2.exr --autoscale 0 --scale 2 --collage 1
-    python iv.py -i *.exr --autoscale 1 --autoscaleGlobal 1 --collage 1 --nr 5 --nc 7
+sudo apt-get install libopenexr-dev openexr zlib1g-dev python3-virtualenv
 
 usage from code:
 
@@ -35,10 +32,19 @@ v = iv(images)  # image being H x W x C x N np.ndarray or torch.Tensor
 v = iv(..., autoscale=True, autoscaleGlobal=True)
 v = iv(..., autoscale=True, autoscaleGlobal=True, collage=True)
 
+usage from command line:
+
+    iv image.exr
+    iv image.exr --autoscale --scale 2
+    iv image1.exr image2.exr --autoscale --scale 2 --collage
+    iv *.exr --autoscale --autoscale-global 1 --collage --collage-nr 5 --collage-nc 7
+
+
 TODO: iv currently doesn't support specifying wavelength channels per image
 
 """
 
+import click
 from copy import deepcopy
 from datetime import datetime
 from functools import wraps
@@ -54,6 +60,7 @@ import sys
 import traceback
 import time
 import types
+from typing import Union, List, Tuple
 from warnings import warn
 
 # avoid problems on QT initialization
@@ -112,42 +119,157 @@ def MyPyQtSlot(*args):
 '''
 
 
+@click.command()
+@click.argument('filenames', nargs=-1)
+@click.option('-s', '--scale', type=float, default=1.)
+@click.option('-o', '--offset', type=float, default=0.)
+@click.option('-g', '--gamma', type=float, default=1.)
+@click.option('-c', '--colormap', type=click.Choice(list(cm._cmap_registry.keys()), case_sensitive=False), default='gray')
+@click.option('--spec-wl0', type=float, default=380.0)
+@click.option('--spec-wl1', type=float, default=730.0)
+@click.option('--autoscale/--no-autoscale', default=True)
+@click.option('--autoscale_global', is_flag=True)
+@click.option('--autoscale-use-percentile/--no-autoscale-use-percentile', default=True)
+@click.option('--autoscale-percentile', type=float, default=0.1)
+@click.option('--collage', is_flag=True)
+@click.option('--collage-tight/--no-collage-tight', default=True)
+@click.option('--collage-transpose', is_flag=True)
+@click.option('--collage-transpose-images', is_flag=True)
+@click.option('--collage-nr', type=int, default=None)
+@click.option('--collage-nc', type=int, default=None)
+@click.option('--collage-border-width', type=int, default=0)
+@click.option('--collage-border-value', type=float, default=0.0)
+@click.option('--has-alpha', is_flag=True)
+@click.option('--blend-alpha/--no-blend-alpha', default=True)
+@click.option('--background', type=float, default=0.0)
+@click.option('--crop', is_flag=True)
+@click.option('--crop-left', type=int, default=None)
+@click.option('--crop-right', type=int, default=None)
+@click.option('--crop-top', type=int, default=None)
+@click.option('--crop-bottom', type=int, default=None)
+@click.option('--crop-width', type=int, default=None)
+@click.option('--crop-height', type=int, default=None)
+@click.option('--crop-stride-x', type=int, default=1)
+@click.option('--crop-stride-y', type=int, default=1)
+@click.option('--crop-global', is_flag=True)
+@click.option('--crop-background', type=float, default=0.0)
+@click.option('--annotate', is_flag=True)
+@click.option('--annotate-numbers', is_flag=True)
+@click.option('--font-size', type=int, default=12)
+@click.option('--font-color', type=float, default=1.)
+@click.option('-l', '--label', 'labels', type=str, default=None, multiple=True)
+def iv_cli(filenames, **kwargs):
+    """
+    basic command line interface, usage:
+
+    iv image.exr
+    iv image.exr --no-autoscale --scale 2
+    iv image1.exr image2.exr --no-autoscale --scale 2 --collage
+    iv *.exr --autoscale --autoscale-global --collage --collage-nr 5 --collage-nc 7
+    """
+
+    import glob
+    import imageio
+    from tqdm import tqdm
+    from pysmtb.image import read_openexr
+
+    # inp = args.input
+    if len(filenames) == 1 and '*' in filenames:
+        filenames = sorted(glob.glob(filenames))
+
+    # iterate over provided filenames and load images
+    images = []
+    for fn in tqdm(filenames, 'loading images'):
+        ext = os.path.splitext(fn)[1].lower()
+        if ext == '.exr':
+            # special treatment for EXR images
+            image, channels = read_openexr(fn, sort_rgb=True)
+            rgb_inds = [ind for ind, c in enumerate(channels) if c.lower() in ['r', 'g', 'b']]
+            luminance_ind = np.where(np.logical_or(np.array(channels) == 'L', np.array(channels) == 'l'))[0]
+            if len(rgb_inds) > 0:
+                image = image[:, :, np.array(rgb_inds)]
+            elif len(luminance_ind):
+                image = image[:, :, luminance_ind[0:1]]
+            elif len(channels) > 3:
+                chs = []
+                # handle multispectral channels
+                for ind, ch in enumerate(channels):
+                    # if we can convert a channel name to float, it is likely a wavelength
+                    try:
+                        c = float(ch)
+                        chs.append(ind)
+                    except:
+                        continue
+                chs = np.array(chs)
+                image = image[:, :, chs]
+                # TODO: iv currently doesn't support specifying wavelength channels per image
+            elif image.shape[-1] != 1:
+                raise Exception('could not load image %s, unexpected channel count' % fn)
+        else:
+            try:
+                image = imageio.imread(fn)
+            except Exception as ex:
+                warn('Warning: could not read image file ' + fn + ', caught exception:\n' + str(ex))
+                continue
+
+        images.append(image)
+
+    if not len(images):
+        sys.exit('No images loaded.')
+
+    v = IV(images, **kwargs)
+    print('Press any key to close the session:')
+    input()
+
+
 def iv(*args, **kwargs):
     return IV(*args, **kwargs)
 
 
 class IV(QMainWindow):
-    @staticmethod
-    def print_usage():
-        print(' ')
-        print('hotkeys: ')
-        print('a: trigger autoscale')
-        print('A: toggle autoscale of [min, max] or ')
-        print('   [prctile_low, prctile_high] -> [0, 1], ')
-        print('   prctiles can be changed via ctrl+shift+wheel')
-        print('c: toggle autoscale on image change')
-        print('G: reset gamma to 1')
-        print('L: create collage by arranging all images in a ')
-        print('   rectangular manner')
-        print('O: reset offset to 0')
-        print('p: toggle per image auto scale limit computations ')
-        print('   (vs. globally over all images)')
-        print('S: reset scale to 1')
-        print('Z: reset zoom to 100%')
-        print('left / right:         switch to next / previous image')
-        print('page down / up:       go through images in ~10% steps')
-        print('')
-        print('wheel:                zoom in / out (inside image axes)')
-        print('wheel:                switch to next / previous image')
-        print('                      (outside image axes)')
-        print('ctrl + wheel:         scale up / down')
-        print('shift + wheel:        gamma up / down')
-        print('ctrl + shift + wheel: increase / decrease autoscale')
-        print('                      percentiles')
-        print('left mouse dragged:   pan image')
-        print('')
+    """interactive HDR and spectral image viewer
 
-    def __init__(self, *args, **kwargs):
+    applies automatic tonemapping and cropping, creates multi image arrangements"""
+    def __init__(self, *args,
+                 scale: float = 1.,
+                 offset: float = 0.,
+                 gamma: float = 1.,
+                 colormap: str = 'gray',
+                 autoscale: bool = True,
+                 autoscale_global: bool = False,
+                 autoscale_use_percentile: bool = True,
+                 autoscale_percentile: float = 0.1,
+                 collage: bool = False,
+                 collage_tight: bool = True,
+                 collage_transpose: bool = False,
+                 collage_transpose_images: bool = False,
+                 collage_nr: int = None,
+                 collage_nc: int = None,
+                 collage_border_width: int = 0,
+                 collage_border_value: int = 0,
+                 has_alpha: bool = False,
+                 blend_alpha: bool = False,
+                 background: float = 0.0,
+                 crop: bool = False,
+                 crop_left: int = None,
+                 crop_right: int = None,
+                 crop_top: int = None,
+                 crop_bottom: int = None,
+                 crop_width: int = None,
+                 crop_height: int = None,
+                 crop_stride_x: int = 1,
+                 crop_stride_y: int = 1,
+                 crop_global: bool = False,
+                 crop_background: float = 0.0,
+                 annotate: bool = False,
+                 annotate_numbers: bool = True,
+                 font_size: int = 12,
+                 font_color: float = 1.0,
+                 labels: Union[List, Tuple] = (),
+                 spec_wl0: float = 380.0,
+                 spec_wl1: float = 730.0,
+                 **kwargs):
+
         self.app = QtCore.QCoreApplication.instance()
         if self.app is None:
             self.app = QApplication([''])
@@ -195,7 +317,7 @@ class IV(QMainWindow):
 
         # store list of input images
         self.images = []
-        self.labels = kwargs.get('labels', [])
+        self.labels = labels
         for arg in args:
             if isinstance(arg, list) or isinstance(arg, tuple):
                 for img in arg:
@@ -208,60 +330,84 @@ class IV(QMainWindow):
 
         self.imind = 0  # currently selected image
         self.nims = len(self.images)
-        self.scale = kwargs.get('scale', 1.)
-        self.gamma = kwargs.get('gamma', 1.)
-        self.offset = kwargs.get('offset', 0.)
-        self.autoscalePrctiles = kwargs.get('autoscalePrctile', 0.1)
+
+        # tonemapping
+        self.scale = scale
+        self.gamma = gamma
+        self.offset = offset
+        self.autoscaleEnabled = autoscale
+        self.autoscaleGlobal = autoscale_global
+        self.autoscaleLower = self.autoscaleEnabled
+        self.autoscaleUpper = self.autoscaleEnabled
+        self.autoscaleUsePrctiles = autoscale_use_percentile
+        self.autoscalePrctiles = autoscale_percentile
         if np.isscalar(self.autoscalePrctiles):
             self.autoscalePrctiles = np.array([self.autoscalePrctiles, 100. - self.autoscalePrctiles])
         assert len(self.autoscalePrctiles) == 2, 'autoscalePrctiles must have 2 elements!'
         self.autoscalePrctiles[0] = np.clip(self.autoscalePrctiles[0], 0., 50.)
         self.autoscalePrctiles[1] = np.clip(self.autoscalePrctiles[1], 50., 100.)
-        self.autoscaleUsePrctiles = kwargs.get('autoscaleUsePrctiles', True)
-        self.autoscaleEnabled = kwargs.get('autoscale', True)
-        self.autoscaleLower = self.autoscaleEnabled
-        self.autoscaleUpper = self.autoscaleEnabled
-        self.autoscaleGlobal = kwargs.get('autoscaleGlobal', False)
-        self.collageActive = kwargs.get('collage', False)
-        self.collage_tight = kwargs.get('collageTight', kwargs.get('collage_tight', True))
-        self.collageTranspose = kwargs.get('collageTranspose', False)
-        self.collageTransposeIms = kwargs.get('collageTransposeIms', False)
-        if 'nr' in kwargs and 'nc' in kwargs:
-            nr = int(kwargs['nr'])
-            nc = int(kwargs['nc'])
-        elif 'nr' in kwargs:
-            nr = int(kwargs['nr'])
-            nc = int(np.ceil(self.nims / nr))
-        elif 'nc' in kwargs:
-            nc = int(kwargs['nc'])
-            nr = int(np.ceil(self.nims / nc))
+
+        # colormapping for scalar-valued inputs
+        self.cm_names = list(cm._cmap_registry.keys())
+        self.cm_name_selected = colormap
+
+        # collage
+        self.collageActive = collage
+        self.collage_tight = collage_tight
+        self.collageTranspose = collage_transpose
+        self.collageTransposeIms = collage_transpose_images
+        if collage_nr is not None and collage_nc is not None:
+            collage_nr = int(collage_nr)
+            collage_nc = int(collage_nc)
+        elif collage_nr is not None:
+            collage_nr = int(collage_nr)
+            collage_nc = int(np.ceil(self.nims / collage_nr))
+        elif collage_nc is not None:
+            collage_nc = int(collage_nc)
+            collage_nr = int(np.ceil(self.nims / collage_nc))
         else:
-            nc = int(np.ceil(np.sqrt(self.nims)))
-            nr = int(np.ceil(self.nims / nc))
-        self.collage_nr = nr
-        self.collage_nc = nc
-        self.collage_border_width = kwargs.get('collageBorderWidth', 0)
-        self.collage_border_value = kwargs.get('collageBorderValue', 0.)
-        self.has_alpha = kwargs.get('has_alpha', False)
-        self.blend_alpha = kwargs.get('blend_alpha', False)
-        self.background = kwargs.get('background', 0.0)
-        self.crop = kwargs.get('crop', False)
-        self.crop_global = kwargs.get('crop_global', True)
-        self.crop_background = kwargs.get('crop_background', 0.0)
-        self.zoom_factor = 1.1
-        self.x_zoom = True
-        self.y_zoom = True
-        self.x_stop_at_orig = True
-        self.y_stop_at_orig = True
-        self.annotate = kwargs.get('annotate', False)
-        self.annotate_numbers = kwargs.get('annotate_numbers', True)
-        self.font_size = kwargs.get('font_size', 12)
-        self.font_color = kwargs.get('font_color', 1)
+            collage_nc = int(np.ceil(np.sqrt(self.nims)))
+            collage_nr = int(np.ceil(self.nims / collage_nc))
+        self.collage_nr = collage_nr
+        self.collage_nc = collage_nc
+        self.collage_border_width = collage_border_width
+        self.collage_border_value = collage_border_value
+
+        # alpha mapping
+        self.has_alpha = has_alpha
+        self.blend_alpha = blend_alpha
+        self.background = background
+
+        # automatic cropping
+        self.crop = crop
+        self.crop_global = crop_global
+        self.crop_background = crop_background
+        # explicit crop ROI
+        self.crop_left = crop_left
+        self.crop_right = crop_right
+        self.crop_top = crop_top
+        self.crop_bottom = crop_bottom
+        self.crop_width = crop_width
+        self.crop_height = crop_height
+        self.crop_stride_x = crop_stride_x
+        self.crop_stride_y = crop_stride_y
+
+        # image annotations
+        self.annotate = annotate
+        self.annotate_numbers = annotate_numbers
+        self.font_size = font_size
+        self.font_color = font_color
         if len(self.labels) == 0:
             self.labels = None
         if self.labels is not None:
             assert len(self.labels) == len(self.images), 'number of labels %d must match number of images %d'\
                                                          % (len(self.labels), len(self.images))
+
+        self.zoom_factor = 1.1
+        self.x_zoom = True
+        self.y_zoom = True
+        self.x_stop_at_orig = True
+        self.y_stop_at_orig = True
 
         # stores np.ndarray, QImage and QApplication.clipboard() objects to prevent garbage collection when copying
         # canvas or image to clipboard
@@ -270,9 +416,8 @@ class IV(QMainWindow):
         self.clipboard = None
 
         # spectral to RGB conversion stuff
-        # TODO: expose these
-        self.spec_wl0 = 380
-        self.spec_wl1 = 730
+        self.spec_wl0 = spec_wl0
+        self.spec_wl1 = spec_wl1
         if colour is not None:
             self.spec_cmf_names = list(colour.MSDS_CMFS.keys())
             self.spec_illuminant_names = list(colour.SDS_ILLUMINANTS.keys())
@@ -281,10 +426,6 @@ class IV(QMainWindow):
             self.spec_illuminant_names = ['pip install colour-science']
         self.spec_cmf_selected_name = 'CIE 1931 2 Degree Standard Observer'
         self.spec_illuminant_selected_name = 'E'
-
-        # colormapping for scalar-valued inputs
-        self.cm_names = list(cm._cmap_registry.keys())
-        self.cm_name_selected = kwargs.get('cm', 'gray')
 
         # image display stuff
         self.ih = None
@@ -330,11 +471,35 @@ class IV(QMainWindow):
 
     def _compute_crop_bounds(self):
         # pre-compute cropping bounds (tight bounding box around non-zero pixels)
-        res = crop_bounds(self.images, apply=False, crop_global=self.crop_global, background=self.crop_background)
-        self.xmins = res['xmins']
-        self.xmaxs = res['xmaxs']
-        self.ymins = res['ymins']
-        self.ymaxs = res['ymaxs']
+        if self.crop_left is None \
+                or self.crop_top is None \
+                or self.crop_right is None and self.crop_width is None \
+                or self.crop_bottom is None and self.crop_height is None:
+            res = crop_bounds(self.images, apply=False, crop_global=self.crop_global, background=self.crop_background)
+
+        if self.crop_left is None:
+            self.xmins = res['xmins']
+        else:
+            self.xmins = [self.crop_left] * self.nims
+
+        if self.crop_right is None and self.crop_width is None:
+            self.xmaxs = res['xmaxs']
+        elif self.crop_right is not None:
+            self.xmaxs = [self.crop_right] * self.nims
+        elif self.crop_width is not None:
+            self.xmaxs = [self.crop_left + self.crop_width] * self.nims
+
+        if self.crop_top is None:
+            self.ymins = res['ymins']
+        else:
+            self.ymins = [self.crop_top] * self.nims
+
+        if self.crop_bottom is None and self.crop_height is None:
+            self.ymaxs = res['ymaxs']
+        elif self.crop_bottom is not None:
+            self.ymaxs = [self.crop_bottom] * self.nims
+        elif self.crop_height is not None:
+            self.ymaxs = [self.crop_top + self.crop_height] * self.nims
 
     def _init_ui(self):
         self.widget = QWidget()
@@ -703,7 +868,7 @@ class IV(QMainWindow):
             i = self.imind
         im = self.images[i]
         if self.crop:
-            im = im[self.ymins[i]:self.ymaxs[i], self.xmins[i]:self.xmaxs[i], :]
+            im = im[self.ymins[i]:self.ymaxs[i]:self.crop_stride_y, self.xmins[i]:self.xmaxs[i]:self.crop_stride_x, :]
         if im.dtype != np.float32:
             im = im.astype(np.float32)
         if tonemap:
@@ -904,7 +1069,6 @@ class IV(QMainWindow):
 
     def tonemap(self, im):
         """apply simple scaling & gamma based tonemapping to HDR image, convert spectral to RGB"""
-        # TODO: add color mapping for single channel images
         if isinstance(im, np.matrix):
             im = np.array(im)
 
@@ -1292,83 +1456,3 @@ class IV(QMainWindow):
                 imageio.imwrite(ofname, image)
         except Exception as e:
             warn(str(e))
-
-
-if __name__ == '__main__':
-    """
-    basic command line interface, usage:
-    
-    python iv.py -i image.exr
-    python iv.py -i image.exr --autoscale 0 --scale 2
-    python iv.py -i image1.exr image2.exr --autoscale 0 --scale 2 --collage 1
-    python iv.py -i *.exr --autoscale 1 --autoscaleGlobal 1 --collage 1 --nr 5 --nc 7
-    """
-
-    from argparse import ArgumentParser
-    import glob
-    import imageio
-    from tqdm import tqdm
-
-    from pysmtb.image import read_openexr
-
-    parser = ArgumentParser()
-    parser.add_argument('-i', '--input', nargs='+', default=['*'])
-    args, unknown_args = parser.parse_known_args()
-
-    iv_args = {}
-    unknown_args = unknown_args[::-1]
-    while len(unknown_args):
-        arg = unknown_args.pop()
-        if len(unknown_args) and arg.startswith('--'):
-            val = unknown_args.pop()
-            for val_type in [int, float, bool, str]:
-                try:
-                    val = val_type(val)
-                    break
-                except:
-                    continue
-            iv_args[arg[2:]] = val
-    print(iv_args)
-
-    inp = args.input
-    if len(inp) == 1 and '*' in inp:
-        filenames = sorted(glob.glob(inp))
-    else:
-        filenames = inp
-
-    images = []
-    for fn in tqdm(filenames, 'loading images'):
-        ext = os.path.splitext(fn)[1].lower()
-        if ext == '.exr':
-            image, channels = read_openexr(fn, sort_rgb=True)
-            rgb_inds = [ind for ind, c in enumerate(channels) if c.lower() in ['r', 'g', 'b']]
-            luminance_ind = np.where(np.logical_or(np.array(channels) == 'L', np.array(channels) == 'l'))[0]
-            if len(rgb_inds) > 0:
-                image = image[:, :, np.array(rgb_inds)]
-            elif len(luminance_ind):
-                image = image[:, :, luminance_ind[0:1]]
-            elif len(channels) > 3:
-                chs = []
-                # handle multispectral channels
-                for ind, ch in enumerate(channels):
-                    # if we can convert a channel name to float, it is likely a wavelength
-                    try:
-                        c = float(ch)
-                        chs.append(ind)
-                    except:
-                        continue
-                chs = np.array(chs)
-                image = image[:, :, chs]
-                # TODO: iv currently doesn't support specifying wavelength channels per image
-            elif image.shape[-1] != 1:
-                raise Exception('could not load image %s, unexpected channel count' % fn)
-        elif ext in ['png', 'jpg', 'jpeg']:
-            image = imageio.imread(fn)
-        else:
-            warning('unsupported file extension: ' + fn)
-            continue
-
-        images.append(image)
-    v = iv(images, **iv_args)
-    print('press any key to close the session')
-    input()

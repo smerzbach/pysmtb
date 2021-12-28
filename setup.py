@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="pysmtb",
-    version="0.0.37",
+    version="0.1.00",
     author="Sebastian Merzbach",
     author_email="smerzbach@gmail.com",
     description="python toolbox of (mostly) image-related helper / visualization functions",
@@ -19,11 +19,20 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
+        'click',
+        'colour-science',
         'imageio',
         'matplotlib',
         'numpy',
-        'colour-science'
+        'openexr',
+        'PyQt5',
+        'tqdm',
     ],
+    entry_points={
+        'console_scripts': [
+            'iv = pysmtb.iv:iv_cli',
+        ],
+    },
     python_requires='>=3.6',
 )
 
