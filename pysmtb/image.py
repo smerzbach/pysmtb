@@ -216,10 +216,10 @@ def crop_bounds(images, apply=True, crop_global=True, background=0):
     if not isinstance(images, list):
         images = [images]
     nzs = [np.where(np.sum(np.atleast_3d(im) != background, axis=2) > 0) for im in images]
-    xmins = [np.min(nz[1]) if len(nz[1]) else 0 for nz in nzs]
-    xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
-    ymins = [np.min(nz[0]) if len(nz[0]) else 0 for nz in nzs]
-    ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
+    xmins = [np.min(nz[1]) if len(nz[1]) else im.shape[1] // 2 for nz, im in zip(nzs, images)]
+    xmaxs = [np.max(nz[1]) + 1 if len(nz[1]) else im.shape[1] // 2 for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
+    ymins = [np.min(nz[0]) if len(nz[0]) else im.shape[0] // 2 for nz, im in zip(nzs, images)]
+    ymaxs = [np.max(nz[0]) + 1 if len(nz[0]) else im.shape[0] // 2 for nz, im in zip(nzs, images)]  # +1 to allow easier indexing
     if crop_global:
         # fix cropping boundaries for all images
         xmins = [np.min(xmins) for _ in xmins]
