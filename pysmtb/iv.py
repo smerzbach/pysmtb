@@ -1090,10 +1090,10 @@ class IV(QMainWindow):
         elif im.shape[2] == 3:
             # RGB
             pass
-        elif im.shape[2] == 4 and self.has_alpha and self.blend_alhpa:
+        elif im.shape[2] == 4 and self.has_alpha and self.blend_alpha:
             # RGBA
             im = self.blend(im[:, :, :3], im[:, :, 3:4])
-        elif im.shape[2] == 4 and self.has_alpha and not self.blend_alhpa:
+        elif im.shape[2] == 4 and self.has_alpha and not self.blend_alpha:
             # discard A from RGBA
             im = im[:, :, :3]
         elif im.shape[2] != 3:
