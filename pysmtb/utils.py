@@ -148,7 +148,23 @@ def clamp(arr, lower=0, upper=1):
 
 def video_writer(filename: str, vcodec: str = 'libx264', framerate: float = 25,
                  lossless: bool = False, quality: float = 0.75, pix_fmt: str = 'yuv420p',
-                 loop: Union[bool, int] = 0, verbosity: int = 0, ffmpeg_path=None, **kwargs):
+                 loop: Union[bool, int] = 0, verbosity: int = 0, ffmpeg_path=None,
+                 **kwargs):
+    """
+        Creates a video writer object. Currently supported video codecs are: libx264, libwebp, gif.
+
+        :param filename: output video filename
+        :param vcodec: one of libx264, libwebp, gif
+        :param framerate: output framerate
+        :param lossless: only supported when vcodec='libwebp'
+        :param quality: value in (0, 1] determining the quality
+        :param pix_fmt: output pixel format
+        :param loop: how many times to loop the animation, supported when vcodec='libwebp' or vcodec='gif'
+        :param verbosity: verbosity flag
+        :param ffmpeg_path: path to ffmpeg binary
+        :param kwargs: further flags passed to ffmpeg output arguments
+        :return: skvideo.io.ffmpeg.FFmpegWriter
+        """
     import skvideo
 
     # override ffmpeg to support more codecs (e.g. webp is not supported by conda's ffmpeg)
