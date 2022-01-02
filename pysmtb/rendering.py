@@ -693,9 +693,19 @@ def embree_create_scene(meshes,
     return scene, cam
 
 
-def embree_intersect_scene(scene: EmbreeScene, cam: dict, return_as_rasters: bool = False):
-    """given a pyembree scene and a camera dict, shoot rays and intersect the scene, returning a dict with either
-    N x C or H x W x C arrays if return_as_rasters == True; dict has keys:
+def embree_intersect_scene(scene: EmbreeScene,
+                           cam: dict,
+                           return_as_rasters: bool = False,
+                           xs: np.ndarray = None,
+                           ys: np.ndarray = None,
+                           ):
+    """
+    Given a pyembree scene and a camera dict, shoot rays and intersect the scene, returning a dict with either
+    N x C or H x W x C arrays if return_as_rasters == True. Optionally, a range of pixels can be specified as separate
+    x- and y-coordinate arrays to only trace a region of interest. Such pixel coordinates should be in the range from 0
+    to cam.res_x - 1 and 0 to cam.res_y - 1 respectively.
+
+    The returned dict has keys:
     hit: binary mask indicating hit / miss (always H x W x 1)
     tfar: depth in camera space, 1e37 for missed pixels
     Ng: (unnormalized!) geometric (per-face) normal vectors
@@ -714,8 +724,15 @@ def embree_intersect_scene(scene: EmbreeScene, cam: dict, return_as_rasters: boo
         extrinsics = np.eye(4)
 
     # generate pixel array
-    xs, ys = np.meshgrid(np.r_[0.5: float(res_x) + 0.5],
-                         np.r_[0.5: float(res_y) + 0.5])
+    if xs is None:
+        xs = np.r_[0.5: float(res_x) + 0.5]
+    elif np.remainder(xs[0], 1) == 0.:
+        xs += 0.5
+    if ys is None:
+        ys = np.r_[float(res_y) + 0.5: 0.5: -1]
+    elif np.remainder(ys[0], 1) == 0.:
+        ys += 0.5
+    xs, ys = np.meshgrid(xs, ys)
     pts_pixels = np.stack((xs.ravel(), ys.ravel(), np.ones(xs.size)), axis=0).astype(np.float32)
     num_pix = res_y * res_x
 
