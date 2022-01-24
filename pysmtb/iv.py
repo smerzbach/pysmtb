@@ -330,6 +330,8 @@ class IV(QMainWindow):
 
         self.imind = 0  # currently selected image
         self.nims = len(self.images)
+        if self.nims == 0:
+            return
 
         # tonemapping
         self.scale = scale
@@ -357,13 +359,13 @@ class IV(QMainWindow):
         self.collageTranspose = collage_transpose
         self.collageTransposeIms = collage_transpose_images
         if collage_nr is not None and collage_nc is not None:
-            collage_nr = int(collage_nr)
-            collage_nc = int(collage_nc)
+            collage_nr = int(np.maximum(1, collage_nr))
+            collage_nc = int(np.maximum(1, collage_nc))
         elif collage_nr is not None:
-            collage_nr = int(collage_nr)
+            collage_nr = int(np.maximum(1, collage_nr))
             collage_nc = int(np.ceil(self.nims / collage_nr))
         elif collage_nc is not None:
-            collage_nc = int(collage_nc)
+            collage_nc = int(np.maximum(1, collage_nc))
             collage_nr = int(np.ceil(self.nims / collage_nc))
         else:
             collage_nc = int(np.ceil(np.sqrt(self.nims)))
@@ -924,7 +926,7 @@ class IV(QMainWindow):
             self.set_offset(lower, False)
             self.uiLabelAutoscaleLower.setText('%f' % lower)
         if self.autoscaleUpper:
-            self.set_scale(1. / (upper - lower), True)
+            self.set_scale(1. / ((upper - lower) if upper != lower else 1), True)
             self.uiLabelAutoscaleUpper.setText('%f' % upper)
 
     def _toggle_autoscale_use_prctiles(self):
@@ -1102,7 +1104,7 @@ class IV(QMainWindow):
                 raise NotImplemented('please install the colour-science package (pip install colour-science)')
 
             wl_range = self.spec_wl1 - self.spec_wl0
-            spec_shape = colour.SpectralShape(self.spec_wl0, self.spec_wl1, wl_range / (im.shape[2] - 1))
+            spec_shape = colour.SpectralShape(self.spec_wl0, self.spec_wl1, wl_range / np.maximum(1, (im.shape[2] - 1)))
 
             illuminant = deepcopy(colour.SDS_ILLUMINANTS[self.spec_illuminant_selected_name])
             illuminant = illuminant.align(shape=spec_shape)
@@ -1113,7 +1115,7 @@ class IV(QMainWindow):
                 im = colour.XYZ_to_sRGB(im / 100)
             else:
                 im /= 100
-        im = np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / self.gamma)
+        im = np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / (self.gamma if self.gamma != 0 else 1.))
         if self.cm_name_selected != 'gray':
             return cm.get_cmap(self.cm_name_selected)(im[..., 0])[..., :3]
         else:
@@ -1199,7 +1201,7 @@ class IV(QMainWindow):
         self.scale = scale
         self.uiLEScale.setText(str(self.scale))
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
-        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
+        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / (self.scale if self.scale != 0 else 1)) + self.offset))
         if redraw:
             self._display_image()
 
@@ -1213,7 +1215,7 @@ class IV(QMainWindow):
         self.offset = offset
         self.uiLEOffset.setText(str(self.offset))
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
-        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / self.scale) + self.offset))
+        self.uiLabelAutoscaleUpper.setText('%f' % ((1 / (self.scale if self.scale != 0 else 1)) + self.offset))
         if redraw:
             self._display_image()
 
@@ -1371,10 +1373,10 @@ class IV(QMainWindow):
         ix0, ix1, iy1, iy0 = self.ih.get_extent()
 
         # relative coordinates of image corners
-        fx0 = (ix0 - ax0) / (ax1 - ax0)
-        fx1 = 1 - (ax1 - ix1) / (ax1 - ax0)
-        fy0 = 1 - (iy0 - ay0) / (ay1 - ay0)
-        fy1 = (ay1 - iy1) / (ay1 - ay0)
+        fx0 = (ix0 - ax0) / ((ax1 - ax0) if ax0 != ax1 else 1)
+        fx1 = 1 - (ax1 - ix1) / ((ax1 - ax0) if ax0 != ax1 else 1)
+        fy0 = 1 - (iy0 - ay0) / ((ay1 - ay0) if ay0 != ay1 else 1)
+        fy1 = (ay1 - iy1) / ((ay1 - ay0) if ay0 != ay1 else 1)
         x0 = int(np.clip(np.round(width_canvas * fx0), 0, width_canvas))
         x1 = int(np.clip(np.round(width_canvas * fx1), 0, width_canvas))
         y0 = int(np.clip(np.round(height_canvas * fy0), 0, height_canvas))
