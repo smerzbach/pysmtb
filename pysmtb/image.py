@@ -388,11 +388,11 @@ def write_openexr(filename: str, image: np.ndarray, channels: list = None, pixel
             channels = ['L']
         elif num_channels == 3:
             channels = ['R', 'G', 'B']
-        elif num_channels == 3:
+        elif num_channels == 4:
             channels = ['R', 'G', 'B', 'A']
         else:
             num_digits = max(1, int(np.ceil(np.log10(num_channels + 1))))
-            channels = [('ch%0' + str(num_digits) + 'd') % ci for ci in nrange(num_channels)]
+            channels = [('ch%0' + str(num_digits) + 'd') % ci for ci in range(num_channels)]
     assert len(channels) == num_channels, 'number of channels (%d) must match the image ' \
                                           'dimensions (%d)' % (len(channels), num_channels)
     assert len(pixel_types) == num_channels, 'pixel type was speficied %d times, should match the image ' \
