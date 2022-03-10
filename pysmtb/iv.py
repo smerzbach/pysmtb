@@ -139,7 +139,7 @@ def MyPyQtSlot(*args):
 @click.option('--collage-nc', type=int, default=None)
 @click.option('--collage-border-width', type=int, default=0)
 @click.option('--collage-border-value', type=float, default=0.0)
-@click.option('--has-alpha', is_flag=True)
+@click.option('--has-alpha/--no-has-alpha', default=True)
 @click.option('--blend-alpha/--no-blend-alpha', default=True)
 @click.option('--background', type=float, default=0.0)
 @click.option('--crop', is_flag=True)
@@ -158,6 +158,9 @@ def MyPyQtSlot(*args):
 @click.option('--font-size', type=int, default=12)
 @click.option('--font-color', type=float, default=1.)
 @click.option('-l', '--label', 'labels', type=str, default=None, multiple=True)
+# non-IV options:
+@click.option('-s', '--subsample', 'subsample', type=int, default=1)
+@click.option('-r', '--roi', 'roi', type=str, default=None)
 def iv_cli(filenames, **kwargs):
     """
     basic command line interface, usage:
@@ -177,8 +180,18 @@ def iv_cli(filenames, **kwargs):
     if len(filenames) == 1 and '*' in filenames:
         filenames = sorted(glob.glob(filenames))
 
+    # subsampling
+    ss = kwargs['subsample']
+
+    # cropping to ROI
+    roi = kwargs['roi']
+    if roi is not None:
+        roi = [int(x) for x in roi.split(',')]
+        x0, y0, width, height = roi
+
     # iterate over provided filenames and load images
     images = []
+    labels = []
     for fn in tqdm(filenames, 'loading images'):
         ext = os.path.splitext(fn)[1].lower()
         if ext == '.exr':
@@ -212,7 +225,16 @@ def iv_cli(filenames, **kwargs):
                 warn('Warning: could not read image file ' + fn + ', caught exception:\n' + str(ex))
                 continue
 
+        if roi is not None:
+            image = image[y0:y0+height:ss, x0:x0+width:ss]
+        else:
+            image = image[::ss, ::ss]
         images.append(image)
+        labels.append(fn)
+
+    # only set file name labels if no other labels were provided
+    if kwargs['labels'] is None or len(kwargs['labels']) == 0:
+        kwargs['labels'] = labels
 
     if not len(images):
         sys.exit('No images loaded.')
@@ -247,8 +269,8 @@ class IV(QMainWindow):
                  collage_nc: int = None,
                  collage_border_width: int = 0,
                  collage_border_value: int = 0,
-                 has_alpha: bool = False,
-                 blend_alpha: bool = False,
+                 has_alpha: bool = True,
+                 blend_alpha: bool = True,
                  background: float = 0.0,
                  crop: bool = False,
                  crop_left: int = None,
