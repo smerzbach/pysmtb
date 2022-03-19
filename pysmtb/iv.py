@@ -203,6 +203,9 @@ def iv_cli(filenames, **kwargs):
                 image = image[:, :, np.array(rgb_inds)]
             elif len(luminance_ind):
                 image = image[:, :, luminance_ind[0:1]]
+            elif len(channels) == 3:
+                # default treatment of 3-channel images as RGB
+                pass
             elif len(channels) > 3:
                 chs = []
                 # handle multispectral channels
