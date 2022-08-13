@@ -40,7 +40,7 @@ from warnings import warn
 from pyembree.rtcore_scene import EmbreeScene
 from pyembree.mesh_construction import TriangleMesh
 
-from pysmtb.utils import Dct, find_dim, dims_execpt, assign_masked
+from pysmtb.utils import Dct, find_dim, dims_execpt, assign_masked, safe_divide
 
 try:
     # we only optionally depend on trimesh, a lot of functionality also works without
@@ -51,15 +51,8 @@ except ModuleNotFoundError:
     Trimesh = NoneType
 
 
-def safe_divide(dividend, divisor, eps=1e-17):
-    mask = divisor < eps
-    divisor[mask] = 1
-    return dividend / divisor
-
-
 def normalize(vec, axis=0):
     """normalize input array along specified dimension"""
-    # return vec / np.linalg.norm(vec, axis=axis, keepdims=True)
     return safe_divide(vec, np.linalg.norm(vec, axis=axis, keepdims=True))
 
 

@@ -9,7 +9,7 @@ import os
 import re
 import subprocess
 import sys
-from typing import Dict, Union
+from typing import Dict, List, Tuple, Union
 
 try:
     import torch
@@ -22,10 +22,10 @@ from pysmtb.image import assign_masked, annotate_image, pad, collage, crop_bound
 
 
 def execute(args: Union[str, list],
-          logfile: str = None,
-          universal_newlines: bool = True,
-          shell: bool = False,
-          **kwargs):
+            logfile: str = None,
+            universal_newlines: bool = True,
+            shell: bool = False,
+            **kwargs):
     """run external command (by default with low priority), capture and print its output; returns return code and log"""
     if logfile is not None:
         logfile = open(logfile, 'w')
@@ -89,6 +89,41 @@ def replace_dim(inp, dim: int, new_size: int):
     return [new_size if d == dim or dim < 0 and d == nd + dim else s for d, s in enumerate(inp)]
 
 
+def ensure_ndims_and_len(inp: Union[float, None, List, Tuple, np.ndarray], d: int, n: int = None) -> np.ndarray:
+    """
+    Ensure a given scalar or array-like input becomes a d-dimensional array with length n in its d-th dimension.
+
+    :param inp: scalar, None, list, tuple or array with #dimensions <= d and size 1 or size n
+    :param d: the number of dimensions to ensure
+    :param n: size along d-th dimension to ensure, if omitted, keeps the inputs size
+    :return: np.ndarray with d dimensions and size n in dimension d-1
+    """
+    # scalar or None -> array
+    if inp is None or np.isscalar(inp):
+        inp = np.array([inp] * n)
+
+    # list or tuple -> array
+    if not isinstance(inp, np.ndarray):
+        inp = np.array(inp)
+
+    # when only ensuring number of dimensions, read out length now
+    if n is None:
+        n = inp.size
+
+    # fill up dimensions until nd
+    while inp.ndim < d:
+        inp = inp[None, :]
+
+    # repeat if d-th dimension does not match n
+    if inp.shape[d - 1] == 1:
+        inp = np.repeat(inp, n, axis=d - 1)
+
+    # final sanity check
+    if inp.shape[d - 1] != n:
+        raise Exception('input has size %d in dimension %d, should be size 1 or %d' % (inp.shape[d - 1], d, n))
+    return inp
+
+
 def loadmat(filename):
     """wrapper around scipy.io.loadmat that avoids conversion of nested matlab structs to np.arrays"""
     import scipy.io as spio
@@ -144,6 +179,29 @@ def clamp(arr, lower=0, upper=1):
         else:
             raise Exception('not implemented for data type ' + str(type(arr)))
     return arr
+
+
+def safe_divide(dividend: Union[float, np.ndarray, list],
+                divisor: Union[float, np.ndarray, list],
+                eps: float = 1e-7,
+                fill_value: float = 0.) -> np.ndarray:
+    """
+    Computes output = dividend / divisor if abs(divisor) > eps  else fill_value, i.e. avoid division by 0.
+
+    :param dividend: array or scalar
+    :param divisor: array or scalar
+    :param eps: threshold applied to absolute value of divisor
+    :param fill_value: value to set those entries in output where absolute divisor is below threshold
+    :return: array of same size as dividend and divisor
+    """
+
+    dividend, divisor = np.broadcast_arrays(dividend, divisor)
+    result = np.zeros_like(dividend)
+    mask = np.abs(divisor) >= eps
+    result[mask] = dividend[mask] / divisor[mask]
+    if fill_value != 0.:
+        result[~mask] = fill_value
+    return result
 
 
 def video_writer(filename: str, vcodec: str = 'libx264', framerate: float = 25,

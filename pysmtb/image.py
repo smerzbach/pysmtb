@@ -4,6 +4,9 @@ import os
 import sys
 from typing import Dict, List, Tuple, Union
 
+from pysmtb.utils import safe_divide, ensure_ndims_and_len
+
+
 def assign_masked(mask: np.ndarray, values: np.ndarray, buffer: np.ndarray = None, init_val: float = 0.):
     """given an h x w binary mask, an array with nnz(mask) x nc_vals elements, and optionally a buffer (either empty or
     pre-allocated with h * w * nc_vals elements), assign the values array at those entries of buffer where mask is
@@ -125,6 +128,9 @@ def collage(images, dim=-1,
     if isinstance(images, list):
         images = [np.atleast_3d(im) for im in images]
 
+    # get original data type to ensure the output array has the same
+    dtype = images[0].dtype
+
     if crop:
         images = crop_bounds(images, apply=True, crop_global=crop_global, background=crop_value)['images']
 
@@ -156,7 +162,7 @@ def collage(images, dim=-1,
 
     # fill up array so it matches the product nc * nr; ensure we always fill up at least one array to avoid problems
     # with implicit conversions during the surrounding np.array() call
-    ims = np.array(images + [np.empty((0, 0, 0)) for _ in range(nc * nr - nims + 1)], dtype=object)
+    ims = np.array(images + [np.empty((0, 0, 0), dtype=dtype) for _ in range(nc * nr - nims + 1)], dtype=object)
     ims = ims[:-1]
 
     if transpose:
@@ -405,19 +411,61 @@ def write_openexr(filename: str, image: np.ndarray, channels: list = None, pixel
     outfile.close()
 
 
-def tonemap(image: np.ndarray, offset: float = 0.0, scale: float = 1.0, gamma: float = 1.0, as_uint8: bool = False,
-            alpha: Union[np.ndarray, bool] = None, background: Union[np.ndarray, list, tuple] = (0., 0., 0.)):
-    """apply simple scaling & gamma correction to HDR image; returns tonemapped 3D array clamped to [0, 1], optionally
-    with alpha blending against a specified background, where alpha mask is either user specified as np.ndarray, or set
-    to True when input image is in RGBA format; if background is set to None, the alpha channel will simply be stored
-    as fourth channel in the tonemapped image again"""
+def tonemap(image: np.ndarray,
+            offset: float = 0.0,
+            scale: float = 1.0,
+            gamma: float = 1.0,
+            as_uint8: bool = False,
+            has_alpha: bool = False,
+            alpha: Union[np.ndarray, float] = None,
+            background: Union[np.ndarray, list, tuple] = (0., 0., 0.),
+            normalize: bool = False,
+            normalize_per_channel: bool = False,
+            normalization_percentiles: Tuple = (1., 99.),
+            normalization_lower: Union[float, Tuple, List, np.ndarray] = None,
+            normalization_upper: Union[float, Tuple, List, np.ndarray] = None,
+            ):
+    """
+    Apply simple scaling & gamma correction to HDR image; returns tonemapped 3D array clamped to [0, 1], optionally
+    with alpha blending against a specified background (either with custom alpha channel / value, or A channel in case
+    image is in RGBA format); if no background is provided (None), the alpha channel will simply be stored as fourth
+    channel in the tonemapped image again; output can optionally be scaled to 255 and converted to uint8, ready for
+    image writing.
+
+    :param image: np.ndarray with dimensions H x W[ x C]
+    :param offset: gets subtracted from image before scaling
+    :param scale: scale multiplied to image (after offset subtraction)
+    :param gamma: perform gamma correction, i.e. image ^ (1 / gamma), after offset, scaling and clamping to [0, 1]
+    :param as_uint8: scale to [0...255] and cast to uint8 for writing 8-bit images
+    :param has_alpha: indicate that input channels should be interpreted as RGBA (or grey + alpha)
+    :param alpha: user-specified alpha channel or value
+    :param background: background image, RGB-tuple or value to blend against with alpha channel
+    :param normalize: apply manual or automatic normalization, i.e. map certain lower and upper value to 0 and 1
+    :param normalize_per_channel: perform normalization independently for each channel
+    :param normalization_percentiles: lower and upper percentiles percentages to use for automatic normalization
+    :param normalization_lower: lower value / RGB for manual normalization, None for automatic normalization
+    :param normalization_upper: upper value / RGB for manual normalization, None for automatic normalization
+    :return: tonemapped image as ndarray (H x W x C), either with input dtype or cast to uint8 if as_uint8 == True
+    """
+
+    if isinstance(alpha, bool):
+        raise DeprecationWarning('alpha can no longer be used as a boolean, use has_alpha instead')
+
     image = np.atleast_3d(image)
 
     if image.shape[2] == 4:
         # split alpha channel if available and requested
-        if isinstance(alpha, bool) and alpha:
+        if has_alpha:
             alpha = image[:, :, 3:4]
             image = image[:, :, :3]
+
+    if normalize:
+        ax = (0, 1) if normalize_per_channel else None
+        if normalization_lower is None:
+            normalization_lower = np.percentile(image, normalization_percentiles[0], axis=ax, keepdims=True)
+        if normalization_upper is None:
+            normalization_upper = np.percentile(image, normalization_percentiles[1], axis=ax, keepdims=True)
+        image = safe_divide(image - normalization_lower, normalization_upper - normalization_lower)
 
     # the actual tonemapping
     image = np.clip(scale * (image.astype(np.float32) - offset), 0., 1.) ** (1. / gamma)
@@ -430,7 +478,7 @@ def tonemap(image: np.ndarray, offset: float = 0.0, scale: float = 1.0, gamma: f
             while background.ndim < 3:
                 # add fake spatial dimensions
                 background = background[None]
-            assert background.shape[2] == image.shape[2], 'background has %d channels but image has %d'\
+            assert background.shape[2] == image.shape[2], 'background has %d channels but image has %d' \
                                                           % (background.shape[2], image.shape[2])
             image = alpha * image + (1 - alpha) * background
         else:
@@ -441,6 +489,90 @@ def tonemap(image: np.ndarray, offset: float = 0.0, scale: float = 1.0, gamma: f
     if as_uint8:
         image = (255 * image).astype(np.uint8)
     return image
+
+
+def tonemap_multi(images: Union[list, np.ndarray],
+                  offset: float = 0.0,
+                  scale: float = 1.0,
+                  gamma: float = 1.0,
+                  as_uint8: bool = False,
+                  has_alpha: bool = False,
+                  alphas: Union[float, np.ndarray] = None,
+                  background: Union[np.ndarray, list, tuple] = (0., 0., 0.),
+                  normalize: bool = False,
+                  normalize_per_channel: bool = False,
+                  normalize_globally: bool = False,
+                  normalization_percentiles: Tuple = (1., 99.),
+                  normalization_lower: float = None,
+                  normalization_upper: float = None,
+                  ) -> np.ndarray:
+    """
+    Applies tonemapping to multiple images at once.
+    See tonemap() for detailed documentation, as most parameters are the same.
+    Tonemapping is optionally done with manual or automatic normalization, either globally (same scaling to all images),
+    per image or per channel. For manual normalization, lower and upper bounds can be specified globally or as
+    N-dimensional array-like per image.
+
+    :param images: list or 4D array of N images with dimensions H x W x C x N
+    :param offset: tonemapping offset
+    :param scale: scale multiplied to image (after offset subtraction)
+    :param gamma: perform gamma correction, i.e. image ^ (1 / gamma), after offset, scaling and clamping to [0, 1]
+    :param as_uint8: scale to [0...255] and cast to uint8 for writing 8-bit images
+    :param has_alpha: indicate that input channels should be interpreted as RGBA (or grey + alpha)
+    :param alphas: alpha channel or value, either globally, or per image, as (1 x 1 x 1 x N) or (H x W x 1 x N) arrays
+    :param background: background image, RGB-tuple or value to blend against with alpha channel
+    :param normalize: apply manual or automatic normalization, i.e. map certain lower and upper value to 0 and 1
+    :param normalize_per_channel: perform normalization independently for each channel
+    :param normalize_globally: perform normalization uniformaly across all images
+    :param normalization_percentiles: lower and upper percentiles percentages to use for automatic normalization
+    :param normalization_lower: lower value / RGB for manual normalization, None for automatic normalization
+    :param normalization_upper: upper value / RGB for manual normalization, None for automatic normalization
+    :return: tonemapped images as ndarray (H x W x C x N), either with input dtype or cast to uint8 if as_uint8 == True
+    :return:
+    """
+    # ensure images are N x H x W x C
+    if isinstance(images, list):
+        images = np.stack([np.atleast_3d(image) for image in images], axis=3)
+    while images.ndim < 4:
+        images = images[..., None]
+    images = images.astype(np.float32)
+    _, _, c, n = images.shape
+
+    # split alpha channel if available and requested
+    if (c == 2 or c == 4) and has_alpha:
+        alphas = images[:, :, 3:4, :]
+        images = images[:, :, :3, :]
+    if alphas is not None:
+        alphas = ensure_ndims_and_len(alphas, d=4, n=n)
+
+    if normalize_globally:
+        # compute normalization bounds globally over all images
+        # optionally per channel
+        ax = (0, 1, 3) if normalize_per_channel else None
+        if normalization_lower is None:
+            normalization_lower = np.percentile(images, normalization_percentiles[0], axis=ax, keepdims=True)
+        if normalization_upper is None:
+            normalization_upper = np.percentile(images, normalization_percentiles[1], axis=ax, keepdims=True)
+    if normalization_lower is not None:
+        normalization_lower = ensure_ndims_and_len(normalization_lower, d=4, n=n)
+    if normalization_upper is not None:
+        normalization_upper = ensure_ndims_and_len(normalization_upper, d=4, n=n)
+
+    for i in range(images.shape[3]):
+        images[..., i] = tonemap(images[..., i],
+                                 alpha=None if alphas is None else alphas[..., i],
+                                 offset=offset, scale=scale, gamma=gamma,
+                                 as_uint8=False, background=background,
+                                 normalize=normalize,
+                                 normalization_percentiles=normalization_percentiles,
+                                 normalization_lower=None if normalization_lower is None else normalization_lower[..., i],
+                                 normalization_upper=None if normalization_upper is None else normalization_upper[..., i],
+                                 normalize_per_channel=normalize_per_channel)
+
+    if as_uint8:
+        images = (255 * images).astype(np.uint8)
+
+    return images
 
 
 def blur_image(image, blur_size=49, use_torch=False, filter_type='gauss'):
