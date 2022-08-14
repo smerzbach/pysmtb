@@ -1,6 +1,5 @@
-from geometry import *
-from image import *
-from iv import IV as iv
-from plotting import *
-from rendering import *
-from utils import *
+from pysmtb.btf import *
+from pysmtb.geometry import *
+from pysmtb.image import *
+from pysmtb.plotting import *
+from pysmtb.utils import *

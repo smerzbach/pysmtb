@@ -94,12 +94,9 @@ try:
     import colour
 except ModuleNotFoundError:
     colour = None
-try:
-    from torch import Tensor
-except ModuleNotFoundError:
-    Tensor = type(None)
 
-from pysmtb.utils import crop_bounds, pad, collage, qimage_to_np
+from pysmtb.image import crop_bounds, collage, qimage_to_np
+
 
 '''
 def MyPyQtSlot(*args):
@@ -311,7 +308,7 @@ class IV(QMainWindow):
             pass
 
         def handle_input(inp, images, labels, label=None):
-            if isinstance(inp, Tensor):
+            if str(type(inp)) == "<class 'torch.Tensor'>":
                 # handle torch.Tensor input
                 if inp.ndim <= 3:
                     images.append(np.atleast_3d(inp.detach().cpu().numpy()))

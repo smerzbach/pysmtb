@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="pysmtb",
-    version="0.1.8",
+    version="0.2.0",
     author="Sebastian Merzbach",
     author_email="smerzbach@gmail.com",
     description="python toolbox of (mostly) image-related helper / visualization functions",
@@ -24,10 +24,13 @@ setuptools.setup(
         'imageio',
         'matplotlib',
         'numpy',
-        'openexr',
-        'PyQt5',
         'tqdm',
     ],
+    extras_require={
+        'exr': ['openexr'],
+        'iv': ['PyQt5'],
+        'rendering': ['pyembree', 'PyQt5', 'trimesh'],
+    },
     entry_points={
         'console_scripts': [
             'iv = pysmtb.iv:iv_cli',

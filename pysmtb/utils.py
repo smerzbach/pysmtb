@@ -16,10 +16,6 @@ try:
 except:
     pass
 
-# backwards compatibility after refactoring
-from pysmtb.image import assign_masked, annotate_image, pad, collage, crop_bounds, split_patches, \
-    read_exr, read_openexr, write_openexr, tonemap, blur_image, qimage_to_np
-
 
 def execute(args: Union[str, list],
             logfile: str = None,

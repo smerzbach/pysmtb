@@ -1,7 +1,10 @@
+click
 colour-science
 imageio
 matplotlib
 numpy
-OpenEXR
-PyQt5
+OpenEXR[exr]
+pyembree[rendering]
+PyQt5[iv]
 tqdm
+trimesh[rendering]
