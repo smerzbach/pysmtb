@@ -3,7 +3,7 @@ import numpy as np
 import os
 from tqdm import tqdm
 
-from pysmtb.utils import Dct, assign_masked, write_video
+from pysmtb.utils import Dct, write_video
 from test_rendering import test_rendering
 
 
