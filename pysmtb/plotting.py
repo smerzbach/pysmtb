@@ -3,7 +3,6 @@ import matplotlib
 from matplotlib.transforms import Bbox
 import matplotlib.pyplot as plt
 import numpy as np
-matplotlib.use('Qt5Agg')
 
 
 def plot3(xyz, *args, **kwargs):
@@ -26,6 +25,7 @@ def text3(xyz, strings=None, *args, **kwargs):
 
 
 def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip=False, *args, **kwargs):
+    matplotlib.use('Qt5Agg')
     if axes is None:
         fig = plt.gcf()
         axes = fig.add_subplot(111, projection='3d')
