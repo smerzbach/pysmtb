@@ -209,7 +209,7 @@ def collage(images, dim=-1,
                     im = np.repeat(im, num_channels, axis=2)
                 im = pad(im, new_width=w + bw, new_height=h + bw, new_num_channels=num_channels, value=bv)
             else:
-                im = bv * np.ones((h + bw, w + bw, num_channels))
+                im = bv * np.ones((h + bw, w + bw, num_channels), dtype=dtype)
             row.append(im)
             ii += 1
         rows.append(np.concatenate(row, axis=1))
