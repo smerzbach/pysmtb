@@ -115,13 +115,17 @@ def MyPyQtSlot(*args):
     return slotdecorator
 '''
 
+if hasattr(cm, '_cmap_registry'):
+    cmap_names = list(cm._cmap_registry)
+else:
+    cmap_names = list(cm.cmaps_listed) + list(cm.datad)
 
 @click.command()
 @click.argument('filenames', nargs=-1)
 @click.option('-s', '--scale', type=float, default=1.)
 @click.option('-o', '--offset', type=float, default=0.)
 @click.option('-g', '--gamma', type=float, default=1.)
-@click.option('-c', '--colormap', type=click.Choice(list(cm._cmap_registry.keys()), case_sensitive=False), default='gray')
+@click.option('-c', '--colormap', type=click.Choice(cmap_names, case_sensitive=False), default='gray')
 @click.option('--spec-wl0', type=float, default=380.0)
 @click.option('--spec-wl1', type=float, default=730.0)
 @click.option('--autoscale/--no-autoscale', default=True)
@@ -339,7 +343,7 @@ class IV(QMainWindow):
 
         # store list of input images
         self.images = []
-        self.labels = labels
+        self.labels = list(labels)
         for arg in args:
             if isinstance(arg, list) or isinstance(arg, tuple):
                 for img in arg:
@@ -372,7 +376,7 @@ class IV(QMainWindow):
         self.autoscalePrctiles[1] = np.clip(self.autoscalePrctiles[1], 50., 100.)
 
         # colormapping for scalar-valued inputs
-        self.cm_names = list(cm._cmap_registry.keys())
+        self.cm_names = cmap_names
         self.cm_name_selected = colormap
 
         # collage
