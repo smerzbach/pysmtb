@@ -548,7 +548,7 @@ class IV(QMainWindow):
 
         def _add_widget(w, widget, label, signal=None, callback=None, value=None):
             widget = widget(None if widget == QComboBox else str(value) if label is None else str(label))
-            widget.setMaximumWidth(w)
+            widget.setMaximumWidth(int(w))
             if label is not None and value is not None:
                 if isinstance(widget, QCheckBox):
                     widget.setTristate(False)
@@ -560,7 +560,7 @@ class IV(QMainWindow):
             return widget
 
         self.uiLabelModifiers = QLabel('')
-        self.uiLabelModifiers.setMaximumWidth(width)
+        self.uiLabelModifiers.setMaximumWidth(int(width))
         self.uiLEScale = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.scale)
         self.uiLEGamma = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.gamma)
         self.uiLEOffset = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.offset)
@@ -593,7 +593,7 @@ class IV(QMainWindow):
         self.uiLEFontColor = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_color)
 
         # add colormap options
-        self.uiCBColormaps = _add_widget(width / 2, QComboBox, None, 'activated', self._callback_combobox, self.cm_names)
+        self.uiCBColormaps = _add_widget(width // 2, QComboBox, None, 'activated', self._callback_combobox, self.cm_names)
         cm_ind = np.where([name == self.cm_name_selected for name in self.cm_names])[0]
         self.uiCBColormaps.setCurrentIndex(cm_ind[0] if len(cm_ind) else 0)
 
@@ -608,7 +608,7 @@ class IV(QMainWindow):
         self.uiLESpecWL1 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl1)
 
         self.uiLabelInfo = QLabel('')
-        self.uiLabelInfo.setMaximumWidth(width)
+        self.uiLabelInfo.setMaximumWidth(int(width))
         self._update_info()
 
         # layout
