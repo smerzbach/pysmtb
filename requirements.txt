@@ -5,6 +5,6 @@ matplotlib
 numpy
 OpenEXR[exr]
 pyembree[rendering]
-PyQt5[iv]
+PySide2[iv]
 tqdm
 trimesh[rendering]

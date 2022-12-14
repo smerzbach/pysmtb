@@ -621,7 +621,6 @@ def blur_image(image, blur_size=49, use_torch=False, filter_type='gauss'):
 
 def qimage_to_np(im):
     ptr = im.bits()
-    ptr.setsize(im.byteCount())
     arr = np.array(ptr).reshape((im.height(), im.width(), -1))
     return arr
 

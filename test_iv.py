@@ -10,8 +10,9 @@ try:
 except:
     torch = None
 
-from pysmtb import iv
-from pysmtb.utils import collage
+# from pysmtb import iv
+from pysmtb import iv2 as iv
+from pysmtb.image import collage
 
 
 def rand_im(width, height, num_channels, num_ims, scales):
@@ -27,9 +28,23 @@ def rand_im(width, height, num_channels, num_ims, scales):
 
 
 if __name__ == "__main__":
+
     # test colormapping
-    v = iv.iv(np.concatenate((np.einsum('ic,jc->ijc', np.random.rand(200, 1), np.random.rand(500, 1)),
-                              np.linspace(0, 1, 500)[None, :, None].repeat(200, axis=0)), axis=0))
+    v = iv.iv(np.concatenate((np.einsum('ic,jc->ijc', np.random.rand(200, 1), np.random.rand(500, 1)), np.linspace(0, 1, 500)[None, :, None].repeat(200, axis=0)), axis=0))
+
+    import ctypes
+
+    # old_hook = ctypes.pythonapi.PyOS_InputHook
+    #
+    # def callback() -> int:
+    #     app = QtCore.QCoreApplication.instance()
+    #     # if not app:  # shouldn't happen, but safer if it happens anyway...
+    #     #     return 0
+    #     app.processEvents(QtCore.QEventLoop.AllEvents, 300)
+    #     return 0
+
+    # c_hook = ctypes.PYFUNCTYPE(ctypes.c_int)(v._callback)
+    # ctypes.c_void_p.in_dll(ctypes.pythonapi, "PyOS_InputHook").value = ctypes.cast(c_hook, ctypes.c_void_p).value
 
     # test zoomed copy
     from time import sleep
@@ -55,10 +70,10 @@ if __name__ == "__main__":
     ims3 = [np.random.rand(15, 12, 1) for _ in range(8)]
     coll = collage(ims1 + ims2 + ims3, bw=1, tight=False, nc=5)
     coll_tight = collage(ims1 + ims2 + ims3, bw=1, tight=True, nc=5)
-    v = iv.iv(dict(tight=coll_tight, non_tight=coll), collage=True, collageBorderWidth=1, collageBorderValue=1, annotate=True)
-    v = iv.iv(ims1, ims2, ims3, collage=True, collageBorderWidth=1)
+    v = iv.iv(dict(tight=coll_tight, non_tight=coll), collage=True, collage_border_width=1, collage_border_value=1, annotate=True)
+    v = iv.iv(ims1, ims2, ims3, collage=True, collage_border_width=1)
 
-    if color is not None:
+    if colour is not None:
         # def interval(n):
         #     return deepcopy(cmfs).align(colour.SpectralShape(250., 800., (800. - 250.) / n)).shape.interval
         #
@@ -88,16 +103,17 @@ if __name__ == "__main__":
         # ims = rand_im(100, 100, 3, 4, [10, 10, 3])
         ims_tensors = torch.rand((12, 3, 15, 15))
         ims_list = [np.random.rand(12, 12) for _ in range(9)]
-        v = iv.iv(ims, ims_tensors, ims_list, collage=True, collageBorderWidth=2)
+        v = iv.iv(ims, ims_tensors, ims_list, collage=True, collage_border_width=2)
 
     # compare different illuminants / CMFs in GUI
     ims_spec = np.random.rand(10, 10, 31, 4).astype(np.float32)
     v = iv.iv(ims_spec, autoscale=False)
 
-    # check display of labels
+    # check display of dictionary key labels
     iv.iv(dict(first=np.random.rand(100, 100, 3) + np.linspace(-1, 1, 100)[None, :, None],
                second=np.random.rand(100, 100, 3) + np.linspace(-1, 1, 100)[:, None, None]),
           annotate=True, annotate_numbers=False)
+
 
     # WIP: overlay of numeric pixel values
     ims = np.random.rand(10, 10, 3, 16).astype(np.float16)

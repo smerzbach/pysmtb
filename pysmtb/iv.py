@@ -17,7 +17,7 @@ or manually install:
   matplotlib
   numpy
   OpenEXR
-  PyQt5
+  PySide6
   pysmtb
 
 On a Ubuntu, you might have to first run:
@@ -47,7 +47,6 @@ TODO: iv currently doesn't support specifying wavelength channels per image
 import click
 from copy import deepcopy
 from datetime import datetime
-from functools import wraps
 try:
     from IPython import get_ipython
 except:
@@ -57,38 +56,168 @@ import json
 import numpy as np
 import os
 import sys
-import traceback
-import time
-import types
 from typing import Union, List, Tuple
 from warnings import warn
+
+# import ctypes
+# from pysmtb.pyside_utils import qt_input_hook, set_pyft_callback, get_pyos_inputhook
+#
+# # PySide doesn't have an input hook, so we need to install one
+# # to be able to show plots
+# # Note: This only works well for Posix systems
+# callback = set_pyft_callback(qt_input_hook)
+# pyos_ih = get_pyos_inputhook()
+# pyos_ih.value = ctypes.cast(callback, ctypes.c_void_p).value
+
+
+# import ctypes
+# old_hook = ctypes.pythonapi.PyOS_InputHook
+#
+# foo = 0
+#
+#
+# def callback() -> int:
+#     global foo
+#     foo += 1
+#     print('loo')
+#     return 0
+#
+# c_hook=ctypes.PYFUNCTYPE(ctypes.c_int)(callback)
+# ctypes.c_void_p.in_dll(ctypes.pythonapi,"PyOS_InputHook").value=ctypes.cast(c_hook,ctypes.c_void_p).value
+
+
+# def inputhook(inputhook_context):
+#     # At this point, we run the other loop. This loop is supposed to run
+#     # until either `inputhook_context.fileno` becomes ready for reading or
+#     # `inputhook_context.input_is_ready()` returns True.
+#
+#     # A good way is to register this file descriptor in this other event
+#     # loop with a callback that stops this loop when this FD becomes ready.
+#     # There is no need to actually read anything from the FD.
+#
+#     while True:
+#         try:
+#             app = QtCore.QCoreApplication.instance()
+#             if not app:  # shouldn't happen, but safer if it happens anyway...
+#                 return 0
+#             app.processEvents(QtCore.QEventLoop.AllEvents, 300)
+#             if not stdin_ready():
+#                 # Generally a program would run QCoreApplication::exec()
+#                 # from main() to enter and process the Qt event loop until
+#                 # quit() or exit() is called and the program terminates.
+#                 #
+#                 # For our input hook integration, we need to repeatedly
+#                 # enter and process the Qt event loop for only a short
+#                 # amount of time (say 50ms) to ensure that Python stays
+#                 # responsive to other user inputs.
+#                 #
+#                 # A naive approach would be to repeatedly call
+#                 # QCoreApplication::exec(), using a timer to quit after a
+#                 # short amount of time. Unfortunately, QCoreApplication
+#                 # emits an aboutToQuit signal before stopping, which has
+#                 # the undesirable effect of closing all modal windows.
+#                 #
+#                 # To work around this problem, we instead create a
+#                 # QEventLoop and call QEventLoop::exec(). Other than
+#                 # setting some state variables which do not seem to be
+#                 # used anywhere, the only thing QCoreApplication adds is
+#                 # the aboutToQuit signal which is precisely what we are
+#                 # trying to avoid.
+#                 timer = QtCore.QTimer()
+#                 event_loop = QtCore.QEventLoop()
+#                 timer.timeout.connect(event_loop.quit)
+#                 while True:
+#                     timer.start(50)
+#                     event_loop.exec_()
+#                     timer.stop()
+#         except:
+#             from traceback import print_exc
+#             print_exc()
+#             print("Got exception from inputhook_qt4, unregistering.")
+#
+# from prompt_toolkit.eventloop.inputhook import set_eventloop_with_inputhook
+#
+# set_eventloop_with_inputhook(inputhook)
+
+# Any asyncio code at this point will now use this new loop, with input
+# hook installed.
+
+
+# This needs to occur before any QT imports to ensure that the event loop gets registered in the input hook.
+# Instead of calling the blocking app.exec(), the enables interactive QApplication windows, while being able to work on
+# the Python prompt.
+
+# import matplotlib
+# try:
+#     matplotlib.use('Qt5Agg')
+# except:
+#     pass
+
+# guiname = 'qt5agg'
+# from _pydev_bundle.pydev_versioncheck import versionok_for_gui
+# if versionok_for_gui():
+#     try:
+#         from pydev_ipython.inputhook import enable_gui
+#         enable_gui(guiname)
+#     except:
+#         sys.stderr.write("Failed to enable GUI event loop integration for '%s'\n" % guiname)
+#         import traceback
+#         traceback.print_exc()
+# elif guiname not in ['none', '', None]:
+#     # Only print a warning if the guiname was going to do something
+#     sys.stderr.write("Debug console: Python version does not support GUI event loop integration for '%s'\n" % guiname)
+
 
 # avoid problems on QT initialization
 os.environ['QT_STYLE_OVERRIDE'] = ''
 
 from PyQt5 import QtGui
-import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
-    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout, QWidget, QFileDialog
-from PyQt5.Qt import QImage
+from PyQt5 import QtCore
+from PyQt5 import QtWidgets
+
+# from PySide2 import QtGui
+# from PySide2 import QtCore
+# from PySide2 import QtWidgets
+
+# from PySide6 import QtGui
+# from PySide6 import QtCore
+# from PySide6 import QtWidgets
+
+QApplication = QtWidgets.QApplication
+QCheckBox = QtWidgets.QCheckBox
+QComboBox = QtWidgets.QComboBox
+QFormLayout = QtWidgets.QFormLayout
+QFrame = QtWidgets.QFrame
+QGridLayout = QtWidgets.QGridLayout
+QHBoxLayout = QtWidgets.QHBoxLayout
+QLabel = QtWidgets.QLabel
+QLineEdit = QtWidgets.QLineEdit
+QMainWindow = QtWidgets.QMainWindow
+QPushButton = QtWidgets.QPushButton
+QSizePolicy = QtWidgets.QSizePolicy
+QSpacerItem = QtWidgets.QSpacerItem
+try:
+    QShortcut = QtWidgets.QShortcut
+except:
+    QShortcut = QtGui.QShortcut
+QSplitter = QtWidgets.QSplitter
+QVBoxLayout = QtWidgets.QVBoxLayout
+QWidget = QtWidgets.QWidget
+QFileDialog = QtWidgets.QFileDialog
+QImage = QtGui.QImage
 
 import matplotlib
-try:
-    matplotlib.use('Qt5Agg')
-except:
-    pass
+# matplotlib.interactive(True)
+# import matplotlib.pyplot as plt
+# plt.install_repl_displayhook()
+
+
 import matplotlib.cm as cm
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+# from matplotlib.backends.backend_qt import FigureCanvasQT as FigureCanvas
 
 from matplotlib.figure import Figure
-from matplotlib.axes import Axes
 from matplotlib.transforms import Bbox
-
-from matplotlib import pyplot as plt
-import matplotlib.gridspec as gridspec
 
 try:
     import colour
@@ -96,7 +225,6 @@ except ModuleNotFoundError:
     colour = None
 
 from pysmtb.image import crop_bounds, collage, qimage_to_np
-
 
 '''
 def MyPyQtSlot(*args):
@@ -248,11 +376,11 @@ def iv_cli(filenames, **kwargs):
     input()
 
 
-def iv(*args, **kwargs):
-    return IV(*args, **kwargs)
+def IV(*args, **kwargs):
+    return iv(*args, **kwargs)
 
 
-class IV(QMainWindow):
+class iv(QMainWindow):
     """interactive HDR and spectral image viewer
 
     applies automatic tonemapping and cropping, creates multi image arrangements"""
@@ -294,7 +422,7 @@ class IV(QMainWindow):
                  labels: Union[List, Tuple] = (),
                  spec_wl0: float = 380.0,
                  spec_wl1: float = 730.0,
-                 **kwargs):
+                 blocking: bool = False):
 
         self.app = QtCore.QCoreApplication.instance()
         if self.app is None:
@@ -494,8 +622,62 @@ class IV(QMainWindow):
         self.ofname = ''  # previous saved image path
         
         self.show()
+        self.raise_()  # brings new window to foreground
         self.repaint()
         self.canvas.draw()
+        if blocking:
+            self.app.exec_()
+        else:
+            # from pysmtb.inputhook import InputHookManager, set_return_control_callback
+            #
+            # class _ProcessExecQueueHelper:
+            #     _debug_hook = None
+            #     _return_control_osc = False
+            #
+            # def return_control():
+            #     ''' A function that the inputhooks can call (via inputhook.stdin_ready()) to find
+            #         out if they should cede control and return '''
+            #     if _ProcessExecQueueHelper._debug_hook:
+            #         # Some of the input hooks check return control without doing
+            #         # a single operation, so we don't return True on every
+            #         # call when the debug hook is in place to allow the GUI to run
+            #         # XXX: Eventually the inputhook code will have diverged enough
+            #         # from the IPython source that it will be worthwhile rewriting
+            #         # it rather than pretending to maintain the old API
+            #         _ProcessExecQueueHelper._return_control_osc = not _ProcessExecQueueHelper._return_control_osc
+            #         if _ProcessExecQueueHelper._return_control_osc:
+            #             return True
+            #
+            #     return True
+            #
+            # self.mgr = InputHookManager()
+            # self.mgr.enable_pyside2(self.app)
+            # set_return_control_callback(return_control)
+
+            import ctypes
+            c_hook = ctypes.PYFUNCTYPE(ctypes.c_int)(self._callback)
+            ctypes.c_void_p.in_dll(ctypes.pythonapi, "PyOS_InputHook").value = ctypes.cast(c_hook, ctypes.c_void_p).value
+
+            # import ctypes
+            # from pysmtb.pyside_utils import set_pyft_callback, get_pyos_inputhook, qt_input_hook
+            # callback = set_pyft_callback(qt_input_hook)
+            # pyos_ih = get_pyos_inputhook()
+            # pyos_ih.value = ctypes.cast(callback, ctypes.c_void_p).value
+
+    def _callback(self) -> int:
+        try:
+            self.app.processEvents(QtCore.QEventLoop.AllEvents, 1)
+            # # self.app.processEvents(QtCore.QEventLoop.AllEvents)
+            # timer = QtCore.QTimer()
+            # event_loop = QtCore.QEventLoop()
+            # timer.timeout.connect(event_loop.quit)
+            # timer.start(1)
+            # event_loop.exec_()
+            # timer.stop()
+        except:
+            print('exception in callback')
+            return 0
+        return 0
 
     def _compute_crop_bounds(self):
         # pre-compute cropping bounds (tight bounding box around non-zero pixels)
@@ -548,11 +730,11 @@ class IV(QMainWindow):
 
         def _add_widget(w, widget, label, signal=None, callback=None, value=None):
             widget = widget(None if widget == QComboBox else str(value) if label is None else str(label))
-            widget.setMaximumWidth(int(w))
+            widget.setMaximumWidth(w)
             if label is not None and value is not None:
                 if isinstance(widget, QCheckBox):
                     widget.setTristate(False)
-                    widget.setCheckState(2 if value else 0)
+                    widget.setCheckState(QtCore.Qt.CheckState.Checked if value else QtCore.Qt.CheckState.Unchecked)
             if isinstance(widget, QComboBox):
                 widget.addItems(value)
             if callback is not None:
@@ -560,7 +742,7 @@ class IV(QMainWindow):
             return widget
 
         self.uiLabelModifiers = QLabel('')
-        self.uiLabelModifiers.setMaximumWidth(int(width))
+        self.uiLabelModifiers.setMaximumWidth(width)
         self.uiLEScale = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.scale)
         self.uiLEGamma = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.gamma)
         self.uiLEOffset = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.offset)
@@ -593,7 +775,7 @@ class IV(QMainWindow):
         self.uiLEFontColor = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.font_color)
 
         # add colormap options
-        self.uiCBColormaps = _add_widget(width // 2, QComboBox, None, 'activated', self._callback_combobox, self.cm_names)
+        self.uiCBColormaps = _add_widget(width / 2, QComboBox, None, 'activated', self._callback_combobox, self.cm_names)
         cm_ind = np.where([name == self.cm_name_selected for name in self.cm_names])[0]
         self.uiCBColormaps.setCurrentIndex(cm_ind[0] if len(cm_ind) else 0)
 
@@ -608,7 +790,7 @@ class IV(QMainWindow):
         self.uiLESpecWL1 = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.spec_wl1)
 
         self.uiLabelInfo = QLabel('')
-        self.uiLabelInfo.setMaximumWidth(int(width))
+        self.uiLabelInfo.setMaximumWidth(width)
         self._update_info()
 
         # layout
@@ -707,7 +889,10 @@ class IV(QMainWindow):
 
         vbox = QVBoxLayout()
         vbox.addLayout(form)
-        vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
+        try:
+            vbox.addItem(QSpacerItem(1, 1, vData=QSizePolicy.Expanding))
+        except:
+            vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
         vbox.addLayout(form_bottom)
         
         hbox_canvas = QHBoxLayout()
@@ -730,10 +915,10 @@ class IV(QMainWindow):
         # keyboard shortcuts
         # scaleShortcut = QShortcut(QKeySequence('Ctrl+Shift+a'), self.widget)
         # scaleShortcut.activated.connect(self.autoscale)
-        close_shortcut = QShortcut(QKeySequence('Escape'), self.widget)
+        close_shortcut = QShortcut(QtGui.QKeySequence('Escape'), self.widget)
         close_shortcut.activated.connect(self.close)
-        QShortcut(QKeySequence('a'), self.widget).activated.connect(self.autoscale)
-        QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self._toggle_autoscale_use_prctiles)
+        QShortcut(QtGui.QKeySequence('a'), self.widget).activated.connect(self.autoscale)
+        QShortcut(QtGui.QKeySequence('Shift+a'), self.widget).activated.connect(self._toggle_autoscale_use_prctiles)
 
     def _callback_line_edit(self, ui, *args):
         tmp = ui.text()
@@ -914,7 +1099,7 @@ class IV(QMainWindow):
         if i is None:
             i = self.imind
         if self.annotate:
-            from pysmtb.utils import annotate_image
+            from pysmtb.image import annotate_image
             if self.annotate_numbers:
                 label += str(i) + ' '
             if self.labels is not None:
@@ -1284,24 +1469,24 @@ class IV(QMainWindow):
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
         mod = event.modifiers()
-        if key == Qt.Key_Question:  # ?
+        if key == QtCore.Qt.Key_Question:  # ?
             IV.print_usage()
-        elif key == Qt.Key_A:  # a
+        elif key == QtCore.Qt.Key_A:  # a
             # trigger autoscale
             self.autoscale()
             return
-        elif key == Qt.Key_A and mod == Qt.Key_Shift:  # A
+        elif key == QtCore.Qt.Key_A and mod == QtCore.Qt.Key_Shift:  # A
             # toggle autoscale between user-selected percentiles or min-max
             self.autoscaleUsePrctiles = not self.autoscaleUsePrctiles
             self.autoscale()
             return
-        elif key == Qt.Key_C:
+        elif key == QtCore.Qt.Key_C:
             # toggle on-change autoscale
             self.autoscaleEnabled = not self.autoscaleEnabled
             print('on-change autoscaling is %s' % ('on' if self.autoscaleEnabled else 'off'))
-        elif key == Qt.Key_G:
+        elif key == QtCore.Qt.Key_G:
             self.gamma = 1.
-        elif key == Qt.Key_L:
+        elif key == QtCore.Qt.Key_L:
             # update axes for single image dimensions
             if self.collageActive:
                 self._switch_to_single_image()
@@ -1310,32 +1495,32 @@ class IV(QMainWindow):
                 self.collageActive = not self.collageActive
             # also disable per-image scaling limit computation
             self.autoscaleGlobal = not self.autoscaleGlobal
-        elif key == Qt.Key_O:
+        elif key == QtCore.Qt.Key_O:
             self.offset = 0.
-        elif key == Qt.Key_P:
+        elif key == QtCore.Qt.Key_P:
             self.autoscaleGlobal = not self.autoscaleGlobal
             print('per-image scaling is %s' % ('on' if self.autoscaleGlobal else 'off'))
             self.autoscale()
-        elif key == Qt.Key_S:
+        elif key == QtCore.Qt.Key_S:
             self.scale = 1.
-        elif key == Qt.Key_Z:
+        elif key == QtCore.Qt.Key_Z:
             # reset zoom
             self.ih.axes.autoscale(True)
-        elif key == Qt.Key_Alt:
+        elif key == QtCore.Qt.Key_Alt:
             self.alt = True
             self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
             return
-        elif key == Qt.Key_Control:
+        elif key == QtCore.Qt.Key_Control:
             self.control = True
             self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
             return
-        elif key == Qt.Key_Shift:
+        elif key == QtCore.Qt.Key_Shift:
             self.shift = True
             self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
             return
-        elif key == Qt.Key_Left:
+        elif key == QtCore.Qt.Key_Left:
             self.switch_image(-1, False)
-        elif key == Qt.Key_Right:
+        elif key == QtCore.Qt.Key_Right:
             self.switch_image(1, False)
         else:
             return
@@ -1343,11 +1528,11 @@ class IV(QMainWindow):
 
     def keyReleaseEvent(self, event: QtGui.QKeyEvent) -> None:
         key = event.key()
-        if key == Qt.Key_Alt:
+        if key == QtCore.Qt.Key_Alt:
             self.alt = False
-        elif key == Qt.Key_Control:
+        elif key == QtCore.Qt.Key_Control:
             self.control = False
-        elif key == Qt.Key_Shift:
+        elif key == QtCore.Qt.Key_Shift:
             self.shift = False
         self.uiLabelModifiers.setText('alt: %d, ctrl: %d, shift: %d' % (self.alt, self.control, self.shift))
     
@@ -1415,7 +1600,7 @@ class IV(QMainWindow):
         self.canvas.draw()
 
         x0, x1, y0, y1 = self._get_image_pos_canvas()
-        im = QImage(self.canvas.grab())
+        im = self.canvas.grab().toImage()
         im = im.copy(x0, y0, x1 - x0, y1 - y0)
         im = qimage_to_np(im)
 
