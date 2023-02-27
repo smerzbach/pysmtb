@@ -104,7 +104,8 @@ def pad(image, new_width, new_height, new_num_channels=None, value=0., center=Tr
     return image
 
 
-def collage(images, dim=-1,
+def collage(images, 
+            dim=-1,
             nc=None, # number of columns
             nr=None, # number of rows
             bw=0, # border width
@@ -115,10 +116,16 @@ def collage(images, dim=-1,
             crop=False, # crop margins in each image, enabling even tighter packing
             crop_value=0, # pixel value that will be considered as margin
             crop_global=False, # determine margin globally, i.e., the minimum over all images
+            target_aspect: float = None,  # try to match a target aspect ratio
             **kwargs):
     """assemble a list of images or an ndarray into an nr x nc mosaic of sub-images, optionally with border separating
     the images, by default sub-images are packed tightly, i.e. they are padded per row and column with the minimal
     necessary margin to allow concatenation; optionally the entire collage or individual images can be transposed"""
+
+    if 'fill_value' in kwargs:
+        from warnings import warn
+        warn('"fill_value" is deprecated, use "bv" instead')
+
     if isinstance(images, np.ndarray):
         # slice into specified dimension of ndarray
         images = np.atleast_3d(images)
@@ -136,15 +143,44 @@ def collage(images, dim=-1,
 
     nims = len(images)
 
-    if 'fill_value' in kwargs:
-        from warnings import warn
-        warn('"fill_value" is deprecated, use "bv" instead')
-
     if nc is None:
-        if nr is None:
-            nc = int(np.ceil(np.sqrt(nims)))
+        heights = [im.shape[0] for im in images]
+        widths = [im.shape[1] for im in images]
+
+        # exhaustively try all possible arrangements, use target aspect or area as criterion
+        areas = []
+        aspects = []
+        _nrs = []
+        _ncs = []
+        for _nr in range(1, nims + 1):
+            _nc = int(np.ceil(nims / _nr))
+            _nrs.append(_nr)
+            _ncs.append(_nc)
+            hs = np.r_[heights, np.zeros(_nr * _nc - nims, dtype=np.int32)].reshape((_nr, _nc))
+            ws = np.r_[widths, np.zeros(_nr * _nc - nims, dtype=np.int32)].reshape((_nr, _nc))
+            total_height = np.max(np.sum(hs, axis=0))
+            total_width = np.max(np.sum(ws, axis=1))
+            areas.append(total_height * total_width)
+            aspects.append(total_width / total_height)
+
+        # find optimal arrangement
+        if target_aspect is None:
+            # pick arrangement with aspect closest to 1.0 and area closest to minimum area
+            areas_normed = np.abs(np.array(areas) - np.min(areas))
+            areas_normed = areas_normed / np.max(areas_normed)
+            aspects_normed = np.abs(np.array(aspects) - 1.0)
+            aspects_normed = aspects_normed / np.max(aspects_normed)
+            _optimum = np.argmin(areas_normed + aspects_normed)
         else:
-            nc = int(np.ceil(nims / nr))
+            # pick arrangement with aspect closest to target aspect
+            _optimum = np.argmin(np.abs(np.array(aspects) - target_aspect))
+
+        nr = _nrs[_optimum]
+        nc = _ncs[_optimum]
+        # if nr is None:
+        #     nc = int(np.ceil(np.sqrt(nims)))
+        # else:
+        #     nc = int(np.ceil(nims / nr))
     if nr is None:
         nr = int(np.ceil(nims / nc))
     assert nr * nc >= nims, 'specified nr & nc (nr=%d, nc=%d) are too small for %d images' % (nr, nc, nims)
