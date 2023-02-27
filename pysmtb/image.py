@@ -303,14 +303,6 @@ def split_patches(h, w, patch_size=128, min_patch_size=1, overlap=8, padding='re
     return xs, ys
 
 
-def read_exr(fname, outputType=np.float16):
-    import pyexr
-    file = pyexr.open(fname)
-    channels = file.channel_map['all']
-    pixels = file.get(group='all', precision=pyexr.FLOAT)
-    return pixels, channels
-
-
 def read_openexr(fname, channels=None, pixel_type=None, sort_rgb=False) -> Tuple[np.ndarray, list]:
     """read OpenEXR images, returns np.ndarray and list of channel names"""
 
