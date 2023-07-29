@@ -914,7 +914,7 @@ class IV(QMainWindow):
         if i is None:
             i = self.imind
         if self.annotate:
-            from pysmtb.utils import annotate_image
+            from pysmtb.image import annotate_image
             if self.annotate_numbers:
                 label += str(i) + ' '
             if self.labels is not None:
