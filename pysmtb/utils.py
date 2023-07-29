@@ -419,6 +419,10 @@ class Dct(Dict):
             return ""
         width = max([len(str(k)) for k in self])
         items = '{:' + str(width + 2) + 's} {}'
-        items = [items.format(str(key) + ':', self[key]) for key in sorted(self.keys())]
+        try:
+            items = [items.format(str(key) + ':', self[key]) for key in sorted(self.keys())]
+        except TypeError:
+            # keys are not sortable
+            items = [items.format(str(key) + ':', self[key]) for key in self.keys()]
         items = '\n'.join(items)
         return items
