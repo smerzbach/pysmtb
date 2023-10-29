@@ -234,11 +234,11 @@ def collage(images,
     rows = []
     ii = 0
     for row_ind in range(nr):
-        bw_x = 0 if row_ind == nr - 1 else bw
+        bw_y = 0 if row_ind == nr - 1 else bw
         h = row_heights[row_ind]
         row = []
         for col_ind in range(nc):
-            bw_y = 0 if col_ind == nc - 1 else bw
+            bw_x = 0 if col_ind == nc - 1 else bw
             w = col_widths[col_ind]
             if ii < nims:
                 im = ims[row_ind, col_ind]
