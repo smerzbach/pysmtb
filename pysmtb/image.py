@@ -144,8 +144,8 @@ def collage(images,
     nims = len(images)
 
     if nc is None:
-        heights = [im.shape[0] for im in images]
-        widths = [im.shape[1] for im in images]
+        heights = [im.shape[0] + bw for im in images]
+        widths = [im.shape[1] + bw for im in images]
 
         # exhaustively try all possible arrangements, use target aspect or area as criterion
         areas = []
@@ -233,19 +233,21 @@ def collage(images,
 
     rows = []
     ii = 0
-    for ri in range(nr):
-        h = row_heights[ri]
+    for row_ind in range(nr):
+        bw_x = 0 if row_ind == nr - 1 else bw
+        h = row_heights[row_ind]
         row = []
-        for ci in range(nc):
-            w = col_widths[ci]
+        for col_ind in range(nc):
+            bw_y = 0 if col_ind == nc - 1 else bw
+            w = col_widths[col_ind]
             if ii < nims:
-                im = ims[ri, ci]
+                im = ims[row_ind, col_ind]
                 if im.shape[2] == 1:
                     # replicate single-channel images (other channel counts will be zero-padded, e.g. for RG-coded images)
                     im = np.repeat(im, num_channels, axis=2)
-                im = pad(im, new_width=w + bw, new_height=h + bw, new_num_channels=num_channels, value=bv)
+                im = pad(im, new_width=w + bw_x, new_height=h + bw_y, new_num_channels=num_channels, value=bv)
             else:
-                im = bv * np.ones((h + bw, w + bw, num_channels), dtype=dtype)
+                im = bv * np.ones((h + bw_y, w + bw_x, num_channels), dtype=dtype)
             row.append(im)
             ii += 1
         rows.append(np.concatenate(row, axis=1))
