@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="pysmtb",
-    version="0.2.10",
+    version="0.2.11",
     author="Sebastian Merzbach",
     author_email="smerzbach@gmail.com",
     description="python toolbox of (mostly) image-related helper / visualization functions",
@@ -31,6 +31,7 @@ setuptools.setup(
         'iv': ['PyQt5'],
         'plotting': ['PyQt5'],
         'rendering': ['pyembree', 'PyQt5', 'trimesh'],
+        'tbutils': ['difflib', 'pandas', 'tensorboard', 'torch'],
     },
     entry_points={
         'console_scripts': [
