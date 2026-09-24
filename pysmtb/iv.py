@@ -31,6 +31,7 @@ v = iv([image1, image2, image3], image4, image5, ...)
 v = iv(images)  # image being H x W x C x N np.ndarray or torch.Tensor
 v = iv(..., autoscale=True, autoscaleGlobal=True)
 v = iv(..., autoscale=True, autoscaleGlobal=True, collage=True)
+v = iv(..., dark=False)  # dark theme is on by default
 
 usage from command line:
 
@@ -38,6 +39,7 @@ usage from command line:
     iv image.exr --autoscale --scale 2
     iv image1.exr image2.exr --autoscale --scale 2 --collage
     iv *.exr --autoscale --autoscale-global 1 --collage --collage-nr 5 --collage-nc 7
+    iv image.exr --no-dark
 
 
 TODO: iv currently doesn't support specifying wavelength channels per image
@@ -71,7 +73,8 @@ import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
-    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QVBoxLayout, QWidget, QFileDialog
+    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QStyleFactory, QVBoxLayout, \
+    QWidget, QFileDialog
 from PyQt5.Qt import QImage
 
 import matplotlib
@@ -158,6 +161,7 @@ else:
 @click.option('--annotate-numbers', is_flag=True)
 @click.option('--font-size', type=int, default=12)
 @click.option('--font-color', type=float, default=1.)
+@click.option('--dark/--no-dark', default=True)
 @click.option('-l', '--label', 'labels', type=str, default=None, multiple=True)
 # non-IV options:
 @click.option('-s', '--subsample', 'subsample', type=int, default=1)
@@ -291,6 +295,7 @@ class IV(QMainWindow):
                  annotate_numbers: bool = True,
                  font_size: int = 12,
                  font_color: float = 1.0,
+                 dark: bool = True,
                  labels: Union[List, Tuple] = (),
                  spec_wl0: float = 380.0,
                  spec_wl1: float = 730.0,
@@ -425,6 +430,7 @@ class IV(QMainWindow):
         self.annotate_numbers = annotate_numbers
         self.font_size = font_size
         self.font_color = font_color
+        self.dark = dark
         if len(self.labels) == 0:
             self.labels = None
         if self.labels is not None:
@@ -529,10 +535,56 @@ class IV(QMainWindow):
         elif self.crop_height is not None:
             self.ymaxs = [self.crop_top + self.crop_height] * self.nims
 
-    def _init_ui(self):
-        self.widget = QWidget()
+    def _apply_dark_theme(self):
+        style = QStyleFactory.create('Fusion')
+        if style is not None:
+            self.setStyle(style)
+        bg = QtGui.QColor(45, 45, 48)
+        base = QtGui.QColor(30, 30, 30)
+        button = QtGui.QColor(60, 60, 64)
+        text = QtGui.QColor(220, 220, 220)
+        disabled = QtGui.QColor(127, 127, 127)
+        highlight = QtGui.QColor(61, 110, 158)
+        palette = QtGui.QPalette()
+        palette.setColor(QtGui.QPalette.Window, bg)
+        palette.setColor(QtGui.QPalette.WindowText, text)
+        palette.setColor(QtGui.QPalette.Base, base)
+        palette.setColor(QtGui.QPalette.AlternateBase, button)
+        palette.setColor(QtGui.QPalette.ToolTipBase, base)
+        palette.setColor(QtGui.QPalette.ToolTipText, text)
+        palette.setColor(QtGui.QPalette.Text, text)
+        palette.setColor(QtGui.QPalette.Button, button)
+        palette.setColor(QtGui.QPalette.ButtonText, text)
+        palette.setColor(QtGui.QPalette.BrightText, QtGui.QColor(255, 80, 80))
+        palette.setColor(QtGui.QPalette.Link, highlight)
+        palette.setColor(QtGui.QPalette.Highlight, highlight)
+        palette.setColor(QtGui.QPalette.HighlightedText, QtGui.QColor(255, 255, 255))
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text, disabled)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText, disabled)
+        palette.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText, disabled)
+        app = QApplication.instance()
+        if app is not None:
+            if style is not None:
+                app.setStyle(style)
+            app.setPalette(palette)
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
 
-        self.fig = Figure(dpi=100)
+    def _style_canvas(self):
+        if not self.dark:
+            return
+        color = '#1e1e1e'
+        self.fig.patch.set_facecolor(color)
+        self.ax.set_facecolor(color)
+
+    def _init_ui(self):
+        if self.dark:
+            self._apply_dark_theme()
+        self.widget = QWidget()
+        if self.dark:
+            self.widget.setAutoFillBackground(True)
+
+        self.fig = Figure(dpi=100, facecolor='#1e1e1e' if self.dark else 'white')
         self.canvas = FigureCanvas(self.fig)
         self.canvas.setParent(self.widget)
 
@@ -542,6 +594,7 @@ class IV(QMainWindow):
         self.ax.set_anchor('NW')
         self.ax.set_clip_on(False)
         self.ax.set_axis_off()
+        self._style_canvas()
         self._invert_y()
 
         width = 200
@@ -986,6 +1039,7 @@ class IV(QMainWindow):
                        bw=self.collage_border_width)
 
         self.ax.clear()
+        self._style_canvas()
         if coll.dtype == np.float16:
             coll = coll.astype(np.float32)
         self.ih = self.ax.imshow(coll, origin='upper')
@@ -1000,6 +1054,7 @@ class IV(QMainWindow):
         # reset canvas to show a single image instead of a collage
         if self.collageActive:
             self.ax.clear()
+            self._style_canvas()
             self.ih = self.ax.imshow(np.zeros(self.get_img(tonemap=True).shape[:3]), origin='upper')
         self.collageActive = False
         
@@ -1176,6 +1231,7 @@ class IV(QMainWindow):
             if height != im.shape[0] or width != im.shape[1]:
                 # image size changed, create new axes
                 self.ax.clear()
+                self._style_canvas()
                 self.ih = self.ax.imshow(im)
             else:
                 self.ih.set_data(im)
