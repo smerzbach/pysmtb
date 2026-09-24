@@ -17,7 +17,7 @@ or manually install:
   matplotlib
   numpy
   OpenEXR
-  PyQt5
+  PySide6
   pysmtb
 
 On a Ubuntu, you might have to first run:
@@ -66,26 +66,25 @@ import types
 from typing import Union, List, Tuple
 from warnings import warn
 
-# avoid problems on QT initialization
+# avoid problems on QT initialization; matplotlib must see PySide6, not PyQt5
 os.environ['QT_STYLE_OVERRIDE'] = ''
+os.environ['QT_API'] = 'pyside6'
 
-from PyQt5 import QtGui
-import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
-    QLineEdit, QMainWindow, QPushButton, QShortcut, QSizePolicy, QSpacerItem, QSplitter, QStyleFactory, QVBoxLayout, \
+from PySide6 import QtGui
+import PySide6.QtCore as QtCore
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QImage, QKeySequence, QShortcut
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, \
+    QLineEdit, QMainWindow, QPushButton, QSizePolicy, QSpacerItem, QSplitter, QStyleFactory, QVBoxLayout, \
     QWidget, QFileDialog
-from PyQt5.Qt import QImage
 
 import matplotlib
 try:
-    matplotlib.use('Qt5Agg')
+    matplotlib.use('QtAgg')
 except:
     pass
 import matplotlib.cm as cm
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
@@ -102,11 +101,38 @@ except ModuleNotFoundError:
 from pysmtb.image import crop_bounds, collage, qimage_to_np
 
 
+def _qt_int(value):
+    return value.value if hasattr(value, 'value') else int(value)
+
+
+def _install_pyside_debug_hook():
+    """keep the window alive at a debugpy breakpoint
+
+    debugpy pumps events itself while paused, and that pump only knows PyQt.
+    PySide6 already handles python -i and pdb via PyOS_InputHook.
+    """
+    try:
+        from pydev_ipython.inputhook import set_inputhook
+    except Exception:
+        return
+
+    def _hook():
+        app = QApplication.instance()
+        if app is not None:
+            app.processEvents()
+        return 0
+
+    try:
+        set_inputhook(_hook)
+    except Exception:
+        pass
+
+
 '''
 def MyPyQtSlot(*args):
     if len(args) == 0 or isinstance(args[0], types.FunctionType):
         args = []
-    @QtCore.pyqtSlot(*args)
+    @QtCore.Slot(*args)
     def slotdecorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -286,7 +312,7 @@ class DragFloat(QWidget):
     drag horizontally to change the value, ctrl+click to type one,
     hold shift to speed up (x10) and alt to slow down (x0.01)
     """
-    valueChanged = QtCore.pyqtSignal(float)
+    valueChanged = QtCore.Signal(float)
 
     def __init__(self, value=0.0, speed=None, minimum=None, maximum=None,
                  logarithmic=False, relative=False, parent=None):
@@ -480,6 +506,7 @@ class IV(QMainWindow):
         self.app = QtCore.QCoreApplication.instance()
         if self.app is None:
             self.app = QApplication([''])
+        _install_pyside_debug_hook()
         QMainWindow.__init__(self, parent=None)
 
         self.timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
@@ -785,7 +812,7 @@ class IV(QMainWindow):
             if label is not None and value is not None:
                 if isinstance(widget, QCheckBox):
                     widget.setTristate(False)
-                    widget.setCheckState(2 if value else 0)
+                    widget.setCheckState(Qt.Checked if value else Qt.Unchecked)
             if isinstance(widget, QComboBox):
                 widget.addItems(value)
             if callback is not None:
@@ -965,7 +992,7 @@ class IV(QMainWindow):
 
         vbox = QVBoxLayout()
         vbox.addLayout(form)
-        vbox.addItem(QSpacerItem(1, 1, vPolicy=QSizePolicy.Expanding))
+        vbox.addItem(QSpacerItem(1, 1, QSizePolicy.Minimum, QSizePolicy.Expanding))
         vbox.addLayout(form_bottom)
         
         hbox_canvas = QHBoxLayout()
@@ -1065,6 +1092,7 @@ class IV(QMainWindow):
             self._display_image()
 
     def _callback_check_box(self, ui, state):
+        state = _qt_int(state)
         print(ui, state)
         if ui == self.uiCBAutoscaleUsePrctiles:
             self.autoscaleUsePrctiles = bool(state)
@@ -1208,14 +1236,14 @@ class IV(QMainWindow):
         self.image_scales = 1.0 / np.maximum(np.asarray(uppers, dtype=np.float64) - self.image_offsets, 1e-12)
 
     def _set_autoscale_scope(self, state, reset_final=False, update_checkbox=False):
-        state = int(state)
-        entering_each = state == int(Qt.PartiallyChecked) and not self.autoscalePerImage
-        self.autoscalePerImage = state == int(Qt.PartiallyChecked)
-        self.autoscaleGlobal = state == int(Qt.Checked)
+        state = _qt_int(state)
+        entering_each = state == _qt_int(Qt.PartiallyChecked) and not self.autoscalePerImage
+        self.autoscalePerImage = state == _qt_int(Qt.PartiallyChecked)
+        self.autoscaleGlobal = state == _qt_int(Qt.Checked)
         self.uiCBAutoscaleGlobal.setText({0: 'global', 1: 'individually', 2: 'jointly'}.get(state, 'global'))
         if update_checkbox:
             self.uiCBAutoscaleGlobal.blockSignals(True)
-            self.uiCBAutoscaleGlobal.setCheckState(state)
+            self.uiCBAutoscaleGlobal.setCheckState(Qt.CheckState(state))
             self.uiCBAutoscaleGlobal.blockSignals(False)
         # per-image normalization maps each image to 0..1, so the UI sliders become the shared grade
         if entering_each and reset_final:
@@ -1695,7 +1723,7 @@ class IV(QMainWindow):
     def copy_to_clipboard(self):
         im = (255 * self.ih.get_array()).astype(np.uint8)
         h, w, nc = im.shape[:3]
-        im = QImage(im.tobytes(), w, h, nc * w, QImage.Format_RGB888)
+        im = QImage(im.tobytes(), w, h, nc * w, QImage.Format_RGB888).copy()
         c = QApplication.clipboard()
         c.setImage(im)
 
@@ -1726,13 +1754,19 @@ class IV(QMainWindow):
         self.canvas.draw()
 
         x0, x1, y0, y1 = self._get_image_pos_canvas()
-        im = QImage(self.canvas.grab())
+        im = self.canvas.grab().toImage()
         im = im.copy(x0, y0, x1 - x0, y1 - y0)
         im = qimage_to_np(im)
 
         # prevent garbage collection by storing the objects in the class
-        self.clipboard_image = im
-        self.clipboard_qimage = QImage(im, im.shape[1], im.shape[0], QImage.Format_ARGB32)
+        self.clipboard_image = np.ascontiguousarray(im)
+        self.clipboard_qimage = QImage(
+            self.clipboard_image,
+            self.clipboard_image.shape[1],
+            self.clipboard_image.shape[0],
+            self.clipboard_image.strides[0],
+            QImage.Format_ARGB32,
+        ).copy()
         if self.clipboard is None:
             self.clipboard = QApplication.clipboard()
         self.clipboard.setImage(self.clipboard_qimage)
@@ -1747,7 +1781,7 @@ class IV(QMainWindow):
                 dialog = QFileDialog()
                 ofname = dialog.getSaveFileName(parent=self,
                                                 caption='file save path',
-                                                directory=os.path.split(self.ofname)[0])[0]
+                                                dir=os.path.split(self.ofname)[0])[0]
             if ofname is None or not len(ofname):
                 return
             self.ofname = ofname
@@ -1769,7 +1803,7 @@ class IV(QMainWindow):
             elif canvas:
                 # get only image content, not the white stuff from the canvas
                 x0, x1, y0, y1 = self._get_image_pos_canvas()
-                image = QImage(self.canvas.grab())
+                image = self.canvas.grab().toImage()
                 image = image.copy(x0, y0, x1 - x0, y1 - y0)
                 image = qimage_to_np(image)[:, :, -2::-1]
             elif animation:

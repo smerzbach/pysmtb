@@ -28,9 +28,9 @@ setuptools.setup(
     ],
     extras_require={
         'exr': ['openexr'],
-        'iv': ['PyQt5'],
-        'plotting': ['PyQt5'],
-        'rendering': ['pyembree', 'PyQt5', 'trimesh'],
+        'iv': ['PySide6'],
+        'plotting': ['PySide6'],
+        'rendering': ['pyembree', 'PySide6', 'trimesh'],
         'tbutils': ['difflib', 'pandas', 'tensorboard', 'torch'],
     },
     entry_points={

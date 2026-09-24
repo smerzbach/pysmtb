@@ -8,9 +8,8 @@ Created on Thu Nov 28 21:12:15 2019
 
 import numpy as np
 
-import PyQt5
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QTextEdit, QWidget
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPushButton, QSlider, QSpinBox, QTextEdit, QWidget
 
 class exposer(QWidget):
     def __init__(self, target, props, *args, **kwargs):
@@ -73,7 +72,10 @@ class exposer(QWidget):
                 if len(limits) != 2:
                     raise Exception("slider limits must be specified as [min, max]!")
                 
-                self.controls[name] = QSlider(Qt.Horizontal, None, **prop['sliderArgs'])
+                self.controls[name] = QSlider(Qt.Horizontal, None)
+                for key, val in prop['sliderArgs'].items():
+                    setter = 'set' + key[0].upper() + key[1:]
+                    getattr(self.controls[name], setter)(val)
                 self.controls[name].setSingleStep(step)
                 self.controls[name].setRange(limits[0] / step, limits[1] / step)
                 self.controls[name].setValue(getattr(self.target, name) / step)
@@ -116,20 +118,20 @@ class exposer(QWidget):
             prop = self.props[name]
             #print(type(target))
             
-            if isinstance(target, PyQt5.QtWidgets.QCheckBox):
+            if isinstance(target, QCheckBox):
                 value = target.isChecked()
                 
-            elif isinstance(target, PyQt5.QtWidgets.QComboBox):
+            elif isinstance(target, QComboBox):
                 value = target.currentText()
                 
-            elif isinstance(target, PyQt5.QtWidgets.QSlider):
+            elif isinstance(target, QSlider):
                 value = target.value() * float(prop['step']) # + prop['limits'][0]
                 
                 if prop['style'] == 'sliderEdit':
                     # update edit box next to slider
                     self.controls[name].sibling.setText(str(value))
                 
-            elif isinstance(target, PyQt5.QtWidgets.QLineEdit):
+            elif isinstance(target, QLineEdit):
                 value = target.text()
                 value = prop['type'](value)
                 limits = prop['limits']
@@ -150,7 +152,7 @@ class exposer(QWidget):
                     # update edit box with potentially clamped value
                     self.controls[name].setText(str(value))
             
-            elif isinstance(target, PyQt5.QtWidgets.QSpinBox):
+            elif isinstance(target, QSpinBox):
                 value = target.value()
                 value = prop['type'](value)
                 
@@ -179,7 +181,7 @@ if __name__ == "__main__":
     
     widget1 = QWidget()
     widget2 = QTextEdit()
-    widget1.setMinimumSize(PyQt5.QtCore.QSize(200, 400))
+    widget1.setMinimumSize(QSize(200, 400))
     
     layout = QHBoxLayout()
     layout.addWidget(widget2, 1)

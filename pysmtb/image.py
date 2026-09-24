@@ -650,10 +650,13 @@ def blur_image(image, blur_size=49, use_torch=False, filter_type='gauss'):
 
 
 def qimage_to_np(im):
-    ptr = im.bits()
-    ptr.setsize(im.byteCount())
-    arr = np.array(ptr).reshape((im.height(), im.width(), -1))
-    return arr
+    h, w = im.height(), im.width()
+    ptr = im.constBits() if hasattr(im, 'constBits') else im.bits()
+    nbytes = im.sizeInBytes() if hasattr(im, 'sizeInBytes') else im.byteCount()
+    if hasattr(ptr, 'setsize'):
+        ptr.setsize(nbytes)
+    flat = np.frombuffer(ptr, dtype=np.uint8, count=nbytes).copy()
+    return flat.reshape((h, w, -1))
 
 
 def spec_image_to_srgb(image: np.ndarray,

@@ -7,7 +7,7 @@ numpy
 OpenEXR
 pandas
 pyembree
-PyQt5
+PySide6
 tensorboard
 torch>=2.0.0
 tqdm

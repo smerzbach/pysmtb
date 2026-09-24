@@ -1,4 +1,5 @@
 from typing import List, Tuple, Union
+import os
 import matplotlib
 from matplotlib.transforms import Bbox
 import matplotlib.pyplot as plt
@@ -25,7 +26,8 @@ def text3(xyz, strings=None, *args, **kwargs):
 
 
 def _plot3d(method, xyz, second=None, axes=None, axis='equal', limits=None, clip=False, *args, **kwargs):
-    matplotlib.use('Qt5Agg')
+    os.environ['QT_API'] = 'pyside6'
+    matplotlib.use('QtAgg')
     if axes is None:
         fig = plt.gcf()
         axes = fig.add_subplot(111, projection='3d')
