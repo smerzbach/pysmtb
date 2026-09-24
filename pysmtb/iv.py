@@ -50,6 +50,7 @@ import click
 from copy import deepcopy
 from datetime import datetime
 from functools import wraps
+import math
 try:
     from IPython import get_ipython
 except:
@@ -254,6 +255,179 @@ def iv_cli(filenames, **kwargs):
 
 def iv(*args, **kwargs):
     return IV(*args, **kwargs)
+
+
+def dragfloat_value(origin, dx, speed, factor=1.0, logarithmic=False, relative=False, minimum=None, maximum=None):
+    """value after an ImGui-style drag
+
+    dx is pixels from the press position. factor is 0.01 with alt, 10 with shift.
+    logarithmic applies the delta in log space. relative scales a linear delta by max(|origin|, 1).
+    """
+    if logarithmic:
+        v0 = origin if origin != 0 else 1e-8
+        sign = 1.0 if v0 > 0 else -1.0
+        value = sign * math.exp(math.log(abs(v0)) + dx * speed * factor)
+        if not math.isfinite(value):
+            value = math.copysign(1e12, sign)
+    else:
+        magnitude = max(abs(origin), 1.0) if relative else 1.0
+        value = origin + dx * speed * factor * magnitude
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
+class DragFloat(QWidget):
+    """slider-like float editor, same gestures as ImGui DragFloat
+
+    drag horizontally to change the value, ctrl+click to type one,
+    hold shift to speed up (x10) and alt to slow down (x0.01)
+    """
+    valueChanged = QtCore.pyqtSignal(float)
+
+    def __init__(self, value=0.0, speed=None, minimum=None, maximum=None,
+                 logarithmic=False, relative=False, parent=None):
+        super().__init__(parent)
+        if speed is None:
+            if minimum is not None and maximum is not None and maximum > minimum:
+                speed = (maximum - minimum) * 0.01
+            else:
+                speed = 0.01
+        self.speed = speed
+        self.minimum = minimum
+        self.maximum = maximum
+        self.logarithmic = logarithmic
+        self.relative = relative
+        self.value = float(value)
+        self._clamp()
+        self._dragging = False
+        self._editing = False
+        self._press_x = 0
+        self._press_value = self.value
+        self.setMinimumHeight(22)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setCursor(Qt.SizeHorCursor)
+        self.setToolTip('drag to adjust    shift: faster    alt: slower    ctrl+click: edit')
+        self._edit = QLineEdit(self)
+        self._edit.setAlignment(Qt.AlignCenter)
+        self._edit.setFrame(False)
+        self._edit.hide()
+        self._edit.installEventFilter(self)
+        self._edit.editingFinished.connect(self._commit_edit)
+
+    def sizeHint(self):
+        return QtCore.QSize(120, 24)
+
+    def setValue(self, value):
+        self.value = float(value)
+        self._clamp()
+        self.update()
+
+    def _clamp(self):
+        if self.minimum is not None:
+            self.value = max(self.minimum, self.value)
+        if self.maximum is not None:
+            self.value = min(self.maximum, self.value)
+
+    def _speed_factor(self):
+        mods = QApplication.queryKeyboardModifiers()
+        factor = 1.0
+        if mods & Qt.AltModifier:
+            factor *= 0.01
+        if mods & Qt.ShiftModifier:
+            factor *= 10.0
+        return factor
+
+    def _emit_user(self, value):
+        old = self.value
+        self.setValue(value)
+        if self.value != old:
+            self.valueChanged.emit(self.value)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton or self._editing:
+            return
+        if event.modifiers() & Qt.ControlModifier:
+            self._begin_edit()
+            return
+        self._dragging = True
+        self._press_x = event.x()
+        self._press_value = self.value
+        self.grabMouse()
+
+    def mouseMoveEvent(self, event):
+        if not self._dragging:
+            return
+        value = dragfloat_value(
+            self._press_value, event.x() - self._press_x, self.speed, self._speed_factor(),
+            logarithmic=self.logarithmic, relative=self.relative,
+            minimum=self.minimum, maximum=self.maximum)
+        self._emit_user(value)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging and event.button() == Qt.LeftButton:
+            self._dragging = False
+            self.releaseMouse()
+
+    def _begin_edit(self):
+        self._editing = True
+        self._edit.setText(format(self.value, '.6g'))
+        self._edit.setGeometry(self.rect().adjusted(1, 1, -1, -1))
+        self._edit.show()
+        self._edit.setFocus(Qt.OtherFocusReason)
+        self._edit.selectAll()
+
+    def _commit_edit(self):
+        if not self._editing:
+            return
+        text = self._edit.text().strip()
+        self._editing = False
+        self._edit.hide()
+        try:
+            value = float(text)
+        except ValueError:
+            self.update()
+            return
+        self._emit_user(value)
+
+    def eventFilter(self, obj, event):
+        if obj is self._edit and event.type() == QtCore.QEvent.ShortcutOverride and event.key() == Qt.Key_Escape:
+            event.accept()
+            return True
+        if obj is self._edit and event.type() == QtCore.QEvent.KeyPress and event.key() == Qt.Key_Escape:
+            self._editing = False
+            self._edit.hide()
+            self.update()
+            return True
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event):
+        self._edit.setGeometry(self.rect().adjusted(1, 1, -1, -1))
+        super().resizeEvent(event)
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        palette = self.palette()
+        painter.setPen(QtGui.QPen(palette.color(QtGui.QPalette.Mid)))
+        painter.setBrush(palette.color(QtGui.QPalette.Base))
+        painter.drawRoundedRect(rect, 3, 3)
+        if self.minimum is not None and self.maximum is not None and self.maximum > self.minimum:
+            t = (self.value - self.minimum) / (self.maximum - self.minimum)
+            t = min(1.0, max(0.0, t))
+            fill = QtCore.QRect(rect.adjusted(1, 1, -1, -1))
+            fill.setWidth(max(0, int(round(fill.width() * t))))
+            color = palette.color(QtGui.QPalette.Highlight)
+            color.setAlpha(160)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(color)
+            painter.drawRoundedRect(fill, 2, 2)
+        if not self._editing:
+            painter.setPen(palette.color(QtGui.QPalette.Text))
+            painter.drawText(rect, Qt.AlignCenter, format(self.value, '.6g'))
 
 
 class IV(QMainWindow):
@@ -614,13 +788,22 @@ class IV(QMainWindow):
 
         self.uiLabelModifiers = QLabel('')
         self.uiLabelModifiers.setMaximumWidth(int(width))
-        self.uiLEScale = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.scale)
-        self.uiLEGamma = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.gamma)
-        self.uiLEOffset = _add_widget(width, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.offset)
+        self.uiLEScale = DragFloat(self.scale, speed=0.01, logarithmic=True)
+        self.uiLEGamma = DragFloat(self.gamma, speed=0.01, logarithmic=True)
+        self.uiLEOffset = DragFloat(self.offset, speed=0.01, relative=True)
+        for widget in (self.uiLEScale, self.uiLEGamma, self.uiLEOffset):
+            widget.setMaximumWidth(int(width))
+        self.uiLEScale.valueChanged.connect(self.set_scale)
+        self.uiLEGamma.valueChanged.connect(self.set_gamma)
+        self.uiLEOffset.valueChanged.connect(self.set_offset)
         self.uiCBAutoscaleLower = _add_widget(width // 2, QCheckBox, 'lower', 'stateChanged', self._callback_check_box, self.autoscaleLower)
         self.uiCBAutoscaleUpper = _add_widget(width // 2, QCheckBox, 'upper', 'stateChanged', self._callback_check_box, self.autoscaleUpper)
-        self.uiLEAutoscalePrctileLower = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.autoscalePrctiles[0])
-        self.uiLEAutoscalePrctileUpper = _add_widget(width // 2, QLineEdit, None, 'editingFinished', self._callback_line_edit, self.autoscalePrctiles[1])
+        self.uiLEAutoscalePrctileLower = DragFloat(self.autoscalePrctiles[0], minimum=0., maximum=50.)
+        self.uiLEAutoscalePrctileUpper = DragFloat(self.autoscalePrctiles[1], minimum=50., maximum=100.)
+        self.uiLEAutoscalePrctileLower.setMaximumWidth(width // 2)
+        self.uiLEAutoscalePrctileUpper.setMaximumWidth(width // 2)
+        self.uiLEAutoscalePrctileLower.valueChanged.connect(self._set_autoscale_prctile_lower)
+        self.uiLEAutoscalePrctileUpper.valueChanged.connect(self._set_autoscale_prctile_upper)
         self.uiLabelAutoscaleLower = _add_widget(width // 2, QLabel, '%f' % 0.)
         self.uiLabelAutoscaleUpper = _add_widget(width // 2, QLabel, '%f' % 1.)
         self.uiCBAutoscaleUsePrctiles = _add_widget(width // 2, QCheckBox, 'prcntiles', 'stateChanged', self._callback_check_box, self.autoscaleUsePrctiles)
@@ -788,6 +971,14 @@ class IV(QMainWindow):
         QShortcut(QKeySequence('a'), self.widget).activated.connect(self.autoscale)
         QShortcut(QKeySequence('Shift+a'), self.widget).activated.connect(self._toggle_autoscale_use_prctiles)
 
+    def _set_autoscale_prctile_lower(self, value):
+        self.autoscalePrctiles[0] = value
+        self.autoscale()
+
+    def _set_autoscale_prctile_upper(self, value):
+        self.autoscalePrctiles[1] = value
+        self.autoscale()
+
     def _callback_line_edit(self, ui, *args):
         tmp = ui.text()
         try:
@@ -803,19 +994,7 @@ class IV(QMainWindow):
         except:
             return
         
-        if ui == self.uiLEScale:
-            self.set_scale(tmp)
-        elif ui == self.uiLEGamma:
-            self.set_gamma(tmp)
-        elif ui == self.uiLEOffset:
-            self.set_offset(tmp)
-        elif ui == self.uiLEAutoscalePrctileLower:
-            self.autoscalePrctiles[0] = np.clip(tmp, 0., 50.)
-            self.autoscale()
-        elif ui == self.uiLEAutoscalePrctileUpper:
-            self.autoscalePrctiles[1] = np.clip(tmp, 50., 100.)
-            self.autoscale()
-        elif hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
+        if hasattr(self, 'uiLECollageNr') and ui == self.uiLECollageNr:
             self.collage_nr = int(tmp)
             if self.nims > self.collage_nc * self.collage_nr:
                 # increase nc to match selected nr given nims
@@ -1281,7 +1460,7 @@ class IV(QMainWindow):
 
     def set_scale(self, scale, redraw=True):
         self.scale = scale
-        self.uiLEScale.setText(str(self.scale))
+        self.uiLEScale.setValue(self.scale)
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
         self.uiLabelAutoscaleUpper.setText('%f' % ((1 / (self.scale if self.scale != 0 else 1)) + self.offset))
         if redraw:
@@ -1289,13 +1468,13 @@ class IV(QMainWindow):
 
     def set_gamma(self, gamma, redraw=True):
         self.gamma = gamma
-        self.uiLEGamma.setText(str(self.gamma))
+        self.uiLEGamma.setValue(self.gamma)
         if redraw:
             self._display_image()
     
     def set_offset(self, offset, redraw=True):
         self.offset = offset
-        self.uiLEOffset.setText(str(self.offset))
+        self.uiLEOffset.setValue(self.offset)
         self.uiLabelAutoscaleLower.setText('%f' % self.offset)
         self.uiLabelAutoscaleUpper.setText('%f' % ((1 / (self.scale if self.scale != 0 else 1)) + self.offset))
         if redraw:
@@ -1356,7 +1535,7 @@ class IV(QMainWindow):
             self.autoscaleEnabled = not self.autoscaleEnabled
             print('on-change autoscaling is %s' % ('on' if self.autoscaleEnabled else 'off'))
         elif key == Qt.Key_G:
-            self.gamma = 1.
+            self.set_gamma(1., redraw=False)
         elif key == Qt.Key_L:
             # update axes for single image dimensions
             if self.collageActive:
@@ -1367,13 +1546,13 @@ class IV(QMainWindow):
             # also disable per-image scaling limit computation
             self.autoscaleGlobal = not self.autoscaleGlobal
         elif key == Qt.Key_O:
-            self.offset = 0.
+            self.set_offset(0., redraw=False)
         elif key == Qt.Key_P:
             self.autoscaleGlobal = not self.autoscaleGlobal
             print('per-image scaling is %s' % ('on' if self.autoscaleGlobal else 'off'))
             self.autoscale()
         elif key == Qt.Key_S:
-            self.scale = 1.
+            self.set_scale(1., redraw=False)
         elif key == Qt.Key_Z:
             # reset zoom
             self.ih.axes.autoscale(True)
@@ -1412,6 +1591,8 @@ class IV(QMainWindow):
             # autoscale percentiles
             self.autoscalePrctiles[0] = np.clip(self.autoscalePrctiles[0] / np.power(1.1, event.step), 0., 50.)
             self.autoscalePrctiles[1] = np.clip(self.autoscalePrctiles[1] * np.power(1.1, event.step), 50., 100.)
+            self.uiLEAutoscalePrctileLower.setValue(self.autoscalePrctiles[0])
+            self.uiLEAutoscalePrctileUpper.setValue(self.autoscalePrctiles[1])
             print('auto percentiles: [%3.5f, %3.5f]' % (self.autoscalePrctiles[0], self.autoscalePrctiles[1]))
             self.autoscaleUsePrctiles = True
             self.autoscale()
