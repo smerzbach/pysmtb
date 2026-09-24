@@ -133,7 +133,8 @@ else:
 @click.option('--spec-wl0', type=float, default=380.0)
 @click.option('--spec-wl1', type=float, default=730.0)
 @click.option('--autoscale/--no-autoscale', default=True)
-@click.option('--autoscale_global', is_flag=True)
+@click.option('--autoscale_global', is_flag=True, help='one range over all images concatenated')
+@click.option('--autoscale-per-image', is_flag=True, help='normalize each image, then apply UI scale, offset and gamma')
 @click.option('--autoscale-use-percentile/--no-autoscale-use-percentile', default=True)
 @click.option('--autoscale-percentile', type=float, default=0.1)
 @click.option('--collage', is_flag=True)
@@ -441,6 +442,7 @@ class IV(QMainWindow):
                  colormap: str = 'gray',
                  autoscale: bool = True,
                  autoscale_global: bool = False,
+                 autoscale_per_image: bool = False,
                  autoscale_use_percentile: bool = True,
                  autoscale_percentile: float = 0.1,
                  collage: bool = False,
@@ -543,7 +545,11 @@ class IV(QMainWindow):
         self.gamma = gamma
         self.offset = offset
         self.autoscaleEnabled = autoscale
-        self.autoscaleGlobal = autoscale_global
+        # exclusive: current image, one range over the concatenation, or per-image then UI tonemap
+        self.autoscalePerImage = bool(autoscale_per_image)
+        self.autoscaleGlobal = bool(autoscale_global) and not self.autoscalePerImage
+        self.image_offsets = None
+        self.image_scales = None
         self.autoscaleLower = self.autoscaleEnabled
         self.autoscaleUpper = self.autoscaleEnabled
         self.autoscaleUsePrctiles = autoscale_use_percentile
@@ -807,7 +813,23 @@ class IV(QMainWindow):
         self.uiLabelAutoscaleLower = _add_widget(width // 2, QLabel, '%f' % 0.)
         self.uiLabelAutoscaleUpper = _add_widget(width // 2, QLabel, '%f' % 1.)
         self.uiCBAutoscaleUsePrctiles = _add_widget(width // 2, QCheckBox, 'prcntiles', 'stateChanged', self._callback_check_box, self.autoscaleUsePrctiles)
-        self.uiCBAutoscaleGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, self.autoscaleGlobal)
+        self.uiCBAutoscaleGlobal = _add_widget(width // 2, QCheckBox, 'global', 'stateChanged', self._callback_check_box, False)
+        self.uiCBAutoscaleGlobal.blockSignals(True)
+        self.uiCBAutoscaleGlobal.setTristate(True)
+        if self.autoscalePerImage:
+            self.uiCBAutoscaleGlobal.setCheckState(Qt.PartiallyChecked)
+            self.uiCBAutoscaleGlobal.setText('individually')
+        elif self.autoscaleGlobal:
+            self.uiCBAutoscaleGlobal.setCheckState(Qt.Checked)
+            self.uiCBAutoscaleGlobal.setText('jointly')
+        else:
+            self.uiCBAutoscaleGlobal.setCheckState(Qt.Unchecked)
+        self.uiCBAutoscaleGlobal.blockSignals(False)
+        self.uiCBAutoscaleGlobal.setMaximumWidth(width)
+        self.uiCBAutoscaleGlobal.setToolTip(
+            'global: current image\n'
+            'jointly: one range over every image concatenated\n'
+            'individually: normalize each image, then apply UI scale / offset / gamma')
         if self.nims > 1:
             self.uiCBCollageActive = _add_widget(width // 2, QCheckBox, 'enable', 'stateChanged', self._callback_check_box, self.collageActive)
             self.uiCBCollageTight = _add_widget(width // 2, QCheckBox, 'tight', 'stateChanged', self._callback_check_box, self.collage_tight)
@@ -1049,9 +1071,7 @@ class IV(QMainWindow):
             if self.autoscaleEnabled:
                 self.autoscale()
         elif ui == self.uiCBAutoscaleGlobal:
-            self.autoscaleGlobal = bool(state)
-            if self.autoscaleEnabled:
-                self.autoscale()
+            self._set_autoscale_scope(state, reset_final=True)
         elif ui == self.uiCBAutoscaleLower:
             self.autoscaleLower = bool(state)
             self.autoscaleEnabled = self.autoscaleLower or self.autoscaleUpper
@@ -1132,7 +1152,7 @@ class IV(QMainWindow):
         if im.dtype != np.float32:
             im = im.astype(np.float32)
         if tonemap:
-            im = self.tonemap(im)
+            im = self.tonemap(im, image_index=i)
         if decorate and self.annotate:
             im = self.decorate(im=im, i=i)
         return im
@@ -1157,29 +1177,65 @@ class IV(QMainWindow):
                 im = annotate_image(im[:, :, 0], label, font_size=self.font_size, font_color=self.font_color, stroke_color=np.clip(1.-self.font_color, 0, 1))
         return im
     
-    def autoscale(self):
-        """autoscale between user-selected percentiles"""
+    def _value_range(self, values):
+        values = np.asarray(values)
         if self.autoscaleUsePrctiles:
-            if self.autoscaleGlobal:
-                limits = [np.percentile(image, self.autoscalePrctiles)
-                          for image in self.get_imgs(tonemap=False, decorate=False)]
-                lower = np.min([lims[0] for lims in limits])
-                upper = np.max([lims[1] for lims in limits])
-            else:
-                lower, upper = np.percentile(self.get_img(tonemap=False, decorate=False), self.autoscalePrctiles)
+            lower, upper = np.percentile(values, self.autoscalePrctiles)
         else:
-            if self.autoscaleGlobal:
-                ims = self.get_imgs(tonemap=False, decorate=False)
-                lower = np.min([np.min(image) for image in ims])
-                upper = np.max([np.max(image) for image in ims])
-            else:
-                im = self.get_img(tonemap=False, decorate=False)
-                lower = np.min(im)
-                upper = np.max(im)
+            lower = np.min(values)
+            upper = np.max(values)
+        lower = float(lower)
+        upper = float(upper)
         if upper == lower:
-            # enforce scaling by 1 to avoid zero division
             lower -= 0.5
             upper += 0.5
+        return lower, upper
+
+    def _concat_pixels(self):
+        ims = self.get_imgs(tonemap=False, decorate=False)
+        if len(ims) == 1:
+            return np.ravel(ims[0])
+        return np.concatenate([np.ravel(im) for im in ims])
+
+    def _update_per_image_tonemap(self):
+        lowers = []
+        uppers = []
+        for im in self.get_imgs(tonemap=False, decorate=False):
+            lower, upper = self._value_range(im)
+            lowers.append(lower)
+            uppers.append(upper)
+        self.image_offsets = np.asarray(lowers, dtype=np.float64)
+        self.image_scales = 1.0 / np.maximum(np.asarray(uppers, dtype=np.float64) - self.image_offsets, 1e-12)
+
+    def _set_autoscale_scope(self, state, reset_final=False, update_checkbox=False):
+        state = int(state)
+        entering_each = state == int(Qt.PartiallyChecked) and not self.autoscalePerImage
+        self.autoscalePerImage = state == int(Qt.PartiallyChecked)
+        self.autoscaleGlobal = state == int(Qt.Checked)
+        self.uiCBAutoscaleGlobal.setText({0: 'global', 1: 'individually', 2: 'jointly'}.get(state, 'global'))
+        if update_checkbox:
+            self.uiCBAutoscaleGlobal.blockSignals(True)
+            self.uiCBAutoscaleGlobal.setCheckState(state)
+            self.uiCBAutoscaleGlobal.blockSignals(False)
+        # per-image normalization maps each image to 0..1, so the UI sliders become the shared grade
+        if entering_each and reset_final:
+            self.set_offset(0., False)
+            self.set_scale(1., False)
+        if self.autoscalePerImage or self.autoscaleEnabled:
+            self.autoscale()
+        else:
+            self._display_image()
+
+    def autoscale(self):
+        """autoscale between user-selected percentiles"""
+        if self.autoscalePerImage:
+            self._update_per_image_tonemap()
+            self._display_image()
+            return
+        if self.autoscaleGlobal:
+            lower, upper = self._value_range(self._concat_pixels())
+        else:
+            lower, upper = self._value_range(self.get_img(tonemap=False, decorate=False))
         if self.autoscaleLower:
             self.set_offset(lower, False)
             self.uiLabelAutoscaleLower.setText('%f' % lower)
@@ -1329,7 +1385,7 @@ class IV(QMainWindow):
             im = np.repeat(im, bgrnd.shape[2], axis=2)
         return alpha * im + (1 - alpha) * bgrnd
 
-    def tonemap(self, im):
+    def tonemap(self, im, image_index=None):
         """apply simple scaling & gamma based tonemapping to HDR image, convert spectral to RGB"""
         if isinstance(im, np.matrix):
             im = np.array(im)
@@ -1375,6 +1431,13 @@ class IV(QMainWindow):
                 im = colour.XYZ_to_sRGB(im / 100)
             else:
                 im /= 100
+        if self.autoscalePerImage:
+            if self.image_offsets is None:
+                self._update_per_image_tonemap()
+            idx = self.imind if image_index is None else image_index
+            off = self.image_offsets[idx] if self.autoscaleLower else 0.
+            sc = self.image_scales[idx] if self.autoscaleUpper else 1.
+            im = np.clip((im - off) * sc, 0, 1)
         im = np.clip((im - self.offset) * self.scale, 0, 1) ** (1. / (self.gamma if self.gamma != 0 else 1.))
         if self.cm_name_selected != 'gray':
             return cm.get_cmap(self.cm_name_selected)(im[..., 0])[..., :3]
@@ -1543,14 +1606,25 @@ class IV(QMainWindow):
             else:
                 # toggle showing collage
                 self.collageActive = not self.collageActive
-            # also disable per-image scaling limit computation
+            # also clear per-image normalization; global becomes a single shared range
+            self.autoscalePerImage = False
             self.autoscaleGlobal = not self.autoscaleGlobal
+            self.uiCBAutoscaleGlobal.blockSignals(True)
+            self.uiCBAutoscaleGlobal.setCheckState(Qt.Checked if self.autoscaleGlobal else Qt.Unchecked)
+            self.uiCBAutoscaleGlobal.setText('jointly' if self.autoscaleGlobal else 'global')
+            self.uiCBAutoscaleGlobal.blockSignals(False)
         elif key == Qt.Key_O:
             self.set_offset(0., redraw=False)
         elif key == Qt.Key_P:
-            self.autoscaleGlobal = not self.autoscaleGlobal
-            print('per-image scaling is %s' % ('on' if self.autoscaleGlobal else 'off'))
-            self.autoscale()
+            if not self.autoscaleGlobal and not self.autoscalePerImage:
+                state = Qt.Checked
+            elif self.autoscaleGlobal:
+                state = Qt.PartiallyChecked
+            else:
+                state = Qt.Unchecked
+            self._set_autoscale_scope(state, reset_final=True, update_checkbox=True)
+            print('autoscale scope: %s' % self.uiCBAutoscaleGlobal.text())
+            return
         elif key == Qt.Key_S:
             self.set_scale(1., redraw=False)
         elif key == Qt.Key_Z:
